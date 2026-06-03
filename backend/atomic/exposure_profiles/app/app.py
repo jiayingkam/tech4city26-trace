@@ -1,0 +1,47 @@
+from os import environ
+from flask import Flask, jsonify
+from flask_cors import CORS
+from flask_swagger import swagger
+from flask_swagger_ui import get_swaggerui_blueprint
+from dotenv import load_dotenv
+from .db import db
+
+load_dotenv()
+
+
+def create_app() -> Flask:
+    app = Flask(__name__)
+    CORS(app)
+
+    db_server = environ["DB_SERVER"]
+    db_name = environ["DB_NAME"]
+    db_user = environ["DB_USER"]
+    db_password = environ["DB_PASSWORD"]
+    driver = "ODBC+Driver+18+for+SQL+Server"
+    app.config["SQLALCHEMY_DATABASE_URI"] = (
+        f"mssql+pyodbc://{db_user}:{db_password}@{db_server}/{db_name}"
+        f"?driver={driver}&Encrypt=yes&TrustServerCertificate=no&Connection+Timeout=30"
+    )
+    db.init_app(app)
+
+    from .routes import bp
+    app.register_blueprint(bp)
+
+    with app.app_context():
+        db.create_all()
+
+    @app.route("/swagger")
+    def get_swagger():
+        swag = swagger(app)
+        swag["info"]["version"] = "1.0"
+        swag["info"]["title"] = "Exposure Profiles API"
+        return jsonify(swag)
+
+    swaggerui_bp = get_swaggerui_blueprint(
+        "/swagger-ui",
+        "/swagger",
+        config={"app_name": "Exposure Profiles API"},
+    )
+    app.register_blueprint(swaggerui_bp, url_prefix="/swagger-ui")
+
+    return app

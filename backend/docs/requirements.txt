@@ -1,0 +1,2 @@
+flask==3.1.0
+flask-swagger-ui==5.32.5
