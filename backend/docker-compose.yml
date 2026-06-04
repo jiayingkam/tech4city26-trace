@@ -1,0 +1,80 @@
+services:
+
+  # ── Docs ──────────────────────────────────────────────────────────────────
+  docs:
+    build: ./docs
+    ports:
+      - "5000:5000"
+
+  # ── Atomic services ───────────────────────────────────────────────────────
+  users:
+    build: ./atomic/users
+    ports:
+      - "5001:5001"
+    env_file: ../.env
+
+  content_drafts:
+    build: ./atomic/content_drafts
+    ports:
+      - "5002:5002"
+    env_file: ../.env
+
+  detections:
+    build: ./atomic/detections
+    ports:
+      - "5003:5003"
+    env_file: ../.env
+
+  edits:
+    build: ./atomic/edits
+    ports:
+      - "5004:5004"
+    env_file: ../.env
+
+  exposure_profiles:
+    build: ./atomic/exposure_profiles
+    ports:
+      - "5005:5005"
+    env_file: ../.env
+
+  quarantine_items:
+    build: ./atomic/quarantine_items
+    ports:
+      - "5006:5006"
+    env_file: ../.env
+
+  # ── Composite services ────────────────────────────────────────────────────
+  compile_family_digest:
+    build: ./composite/compile_family_digest
+    ports:
+      - "5007:5007"
+
+  detect_mosaic_risk:
+    build: ./composite/detect_mosaic_risk
+    ports:
+      - "5008:5008"
+
+  generate_teachable_moment:
+    build: ./composite/generate_teachable_moment
+    ports:
+      - "5009:5009"
+
+  quarantine_high_risk:
+    build: ./composite/quarantine_high_risk
+    ports:
+      - "5010:5010"
+
+  remediate_content:
+    build: ./composite/remediate_content
+    ports:
+      - "5011:5011"
+
+  scan_draft:
+    build: ./composite/scan_draft
+    ports:
+      - "5012:5012"
+
+  update_exposure_profile:
+    build: ./composite/update_exposure_profile
+    ports:
+      - "5013:5013"
