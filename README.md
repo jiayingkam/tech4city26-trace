@@ -4,24 +4,24 @@ A microservices backend built with Flask, organised into **atomic** (CRUD) and *
 
 ---
 
-## Service Port Mappings
+## Service Port Mappings (Not finalised)
 
-| Port | Service | Type |
-|------|---------|------|
-| 5000 | Swagger Docs UI | docs |
-| 5001 | Users | atomic |
-| 5002 | Content Drafts | atomic |
-| 5003 | Detections | atomic |
-| 5004 | Edits | atomic |
-| 5005 | Exposure Profiles | atomic |
-| 5006 | Quarantine Items | atomic |
-| 5007 | Compile Family Digest | composite |
-| 5008 | Detect Mosaic Risk | composite |
+| Port | Service                   | Type      |
+| ---- | ------------------------- | --------- |
+| 5000 | Swagger Docs UI           | docs      |
+| 5001 | Users                     | atomic    |
+| 5002 | Content Drafts            | atomic    |
+| 5003 | Detections                | atomic    |
+| 5004 | Edits                     | atomic    |
+| 5005 | Exposure Profiles         | atomic    |
+| 5006 | Quarantine Items          | atomic    |
+| 5007 | Compile Family Digest     | composite |
+| 5008 | Detect Mosaic Risk        | composite |
 | 5009 | Generate Teachable Moment | composite |
-| 5010 | Quarantine High Risk | composite |
-| 5011 | Remediate Content | composite |
-| 5012 | Scan Draft | composite |
-| 5013 | Update Exposure Profile | composite |
+| 5010 | Quarantine High Risk      | composite |
+| 5011 | Remediate Content         | composite |
+| 5012 | Scan Draft                | composite |
+| 5013 | Update Exposure Profile   | composite |
 
 ---
 
@@ -111,5 +111,6 @@ http://localhost:<port>/swagger
 ```
 
 For example:
+
 - `http://localhost:5001/swagger` — Users
 - `http://localhost:5002/swagger` — Content Drafts
