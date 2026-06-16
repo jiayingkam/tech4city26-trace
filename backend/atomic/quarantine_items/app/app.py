@@ -24,8 +24,8 @@ def create_app() -> Flask:
     )
     db.init_app(app)
 
-    from .routes import bp
-    app.register_blueprint(bp)
+    from .routes import quarantine_bp
+    app.register_blueprint(quarantine_bp)
 
     with app.app_context():
         db.create_all()
