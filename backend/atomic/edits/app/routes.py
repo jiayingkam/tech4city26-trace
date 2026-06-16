@@ -19,7 +19,6 @@ def create_edit():
 
 @edits_bp.route("/drafts/<draft_id>/edits", methods=["GET"])
 def list_edits(draft_id):
-    # Modern 2.0 syntax execution
     stmt = db.select(Edit).filter_by(draft_id=draft_id)
     edits = db.session.scalars(stmt).all()
     

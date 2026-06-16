@@ -70,6 +70,24 @@ def test_get_quarantine_item_not_found(client, mock_db):
     assert response.status_code == 404
     assert response.json == {"error": "quarantine item not found"}
 
+def test_list_quarantine_by_draft(client, mock_db):
+    """Tests fetching quarantine items filtered by draft_id."""
+    # Create mock items
+    mock_item = MagicMock()
+    mock_item.to_dict.return_value = {"quarantine_id": "q1", "draft_id": "d1"}
+
+    # Mock the chain: db.session.scalars(stmt).all()
+    mock_db.session.scalars.return_value.all.return_value = [mock_item]
+
+    response = client.get("/drafts/d1/quarantine")
+
+    assert response.status_code == 200
+    assert len(response.json) == 1
+    assert response.json[0]["quarantine_id"] == "q1"
+    
+    # Verify the session was used
+    mock_db.session.scalars.assert_called_once()
+
 
 def test_create_quarantine(client, mock_db):
     """Tests POST /quarantine."""

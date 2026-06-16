@@ -27,7 +27,9 @@ def create_quarantine():
 
 @quarantine_bp.route("/drafts/<draft_id>/quarantine", methods=["GET"])
 def list_quarantine(draft_id):
-    items = QuarantineItem.query.filter_by(draft_id=draft_id).all()
+    # No extra sqlalchemy import needed if you use db.select!
+    stmt = db.select(QuarantineItem).filter_by(draft_id=draft_id)
+    items = db.session.scalars(stmt).all()
     return jsonify([i.to_dict() for i in items]), 200
 
 
