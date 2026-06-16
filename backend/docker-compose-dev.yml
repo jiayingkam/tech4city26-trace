@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  # ── Testing Edits ─────────────────────────────────────────────────────────
+  edits:
+    # 1. Mount your local code and testing folder into the container
+    volumes:
+      - ./atomic/edits:/app
+      - ./testing/atomic/edits:/testing
+    # 2. Force it to run pytest instead of starting the production web server
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements-dev.txt && 
+             pytest /testing"
+
+  # ── Testing Quarantine Items ──────────────────────────────────────────────
+  quarantine_items:
+    volumes:
+      - ./atomic/quarantine_items:/app
+      - ./testing/atomic/quarantine_items:/testing
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements-dev.txt && 
+             pytest /testing"

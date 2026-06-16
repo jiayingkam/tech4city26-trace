@@ -94,6 +94,12 @@ flask run
 
 ---
 
+## Running Test Scripts
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose-dev.yml up --build edits quarantine_items
+```
+
 ## Accessing Swagger
 
 Once all services are running, open the combined Swagger UI in your browser:
