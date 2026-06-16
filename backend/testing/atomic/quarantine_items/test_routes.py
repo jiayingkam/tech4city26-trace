@@ -9,7 +9,6 @@ def app():
     """Creates a mock Flask application context."""
     app = Flask(__name__)
     app.register_blueprint(quarantine_bp)
-    app.register_blueprint(bp)
     app.config["TESTING"] = True
     return app
 
