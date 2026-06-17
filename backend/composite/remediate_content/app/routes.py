@@ -1,6 +1,6 @@
 import os
 import requests
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, send_file
 from PIL import Image, ImageFilter
 
 remediate_bp = Blueprint("remediate_content", __name__)
@@ -80,7 +80,26 @@ def confirm_remediation(draft_id):
         if patch_resp.status_code != 200:
             return jsonify({"error": "failed to update edit"}), 502
         confirmed.append(patch_resp.json())
-    return jsonify({"draft_id": draft_id, "confirmed": confirmed}), 200
+    return jsonify({
+        "draft_id": draft_id,
+        "confirmed": confirmed,
+        "download_url": f"/drafts/{draft_id}/download",
+    }), 200
+
+@remediate_bp.route("/drafts/<draft_id>/download", methods=["GET"])
+def download_remediated(draft_id):
+    # only serve the clean file if the user confirmed (>=1 applied edit)
+    resp = requests.get(f"{EDITS_SERVICE_URL}/drafts/{draft_id}/edits")
+    if resp.status_code != 200:
+        return jsonify({"error": "failed to fetch edits"}), 502
+    if not any(e["status"] == "applied" for e in resp.json()):
+        return jsonify({"error": "no confirmed remediation for this draft"}), 400
+
+    path = os.path.join(OUTPUT_DIR, f"{draft_id}.jpg")
+    if not os.path.exists(path):
+        return jsonify({"error": "remediated file not found"}), 404
+
+    return send_file(path, as_attachment=True, download_name=f"trace_clean_{draft_id}.jpg")
 
 
 @remediate_bp.route("/edits/<edit_id>/revert", methods=["POST"])
