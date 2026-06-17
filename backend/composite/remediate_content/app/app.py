@@ -11,8 +11,8 @@ def create_app() -> Flask:
     app = Flask(__name__)
     CORS(app)
 
-    from .routes import bp
-    app.register_blueprint(bp)
+    from .routes import remediate_bp
+    app.register_blueprint(remediate_bp)
 
     @app.route("/swagger")
     def get_swagger():
