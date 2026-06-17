@@ -62,7 +62,7 @@ def update_quarantine(quarantine_id):
         return jsonify({"error": "quarantine item not found"}), 404
     data = request.get_json()
     new_state = data.get("state")
-    if new_state not in ("held", "released", "edited", "deleted"):
+    if new_state not in ("held", "accepted", "edited", "deleted"):
         return jsonify({"error": "invalid state"}), 400
     item.state = new_state
     db.session.commit()

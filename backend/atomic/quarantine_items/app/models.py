@@ -9,7 +9,7 @@ class QuarantineItem(db.Model):
     draft_id = db.Column(db.String, db.ForeignKey("content_drafts.draft_id"), nullable=False, index=True)
     reason = db.Column(db.String, nullable=False)                    # plain-language: "Visible house number + GPS location"
     cooldown_expiry = db.Column(db.DateTime(timezone=True), nullable=False)
-    state = db.Column(db.String, nullable=False, default="held")     # "held" | "proceeded" | "edited" | "deleted"
+    state = db.Column(db.String, nullable=False, default="held")     # "held" | "accepted" | "edited" | "deleted"
     created_at = db.Column(db.DateTime(timezone=True), nullable=False,
                            default=lambda: datetime.now(timezone.utc))
 
