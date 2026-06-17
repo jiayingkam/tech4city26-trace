@@ -131,6 +131,13 @@ services:
     build: ./composite/scan_draft
     ports:
       - "5012:5012"
+    depends_on:
+      detections:
+        condition: service_healthy
+      quarantine_high_risk:
+        condition: service_healthy
+      remediate_content:
+        condition: service_healthy
 
   update_exposure_profile:
     build: ./composite/update_exposure_profile

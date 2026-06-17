@@ -11,13 +11,14 @@ EDITS_SERVICE_URL = os.environ.get("EDITS_SERVICE_URL", "http://EDITS:5004")
 ORIGINAL_DIR = "storage/originals"
 OUTPUT_DIR = "storage/remediated"
 
-def apply_remediation(original_path, detections):
+
+def apply_remediation(original_path, edits):
     """Blur each region that has a box, then strip metadata. Returns output path."""
     img = Image.open(original_path)
 
-    for d in detections:
-        region = d.get("bounding_region")
-        if region:  # blur this box; metadata-only detections have no box
+    for e in edits:
+        region = e.get("region_affected")
+        if region:
             box = (region["x"], region["y"],
                    region["x"] + region["w"], region["y"] + region["h"])
             blurred = img.crop(box).filter(ImageFilter.GaussianBlur(radius=15))
@@ -38,14 +39,9 @@ def remediate_content(draft_id):
     if not detections:
         return jsonify({"error": "nothing to remediate"}), 400
 
-    # 2. locate the original (integration seam — see note below)
-    original_path = os.path.join(ORIGINAL_DIR, f"{draft_id}.jpg")
-
-    # 3. apply blur + strip
-    output_path = apply_remediation(original_path, detections)
-
-    # 4. write one pending edit per detection via edits service
-    created = []
+    # 2. propose one pending edit per detection — no pixel work yet
+    #    the user can skip any of these before confirming
+    proposed = []
     for d in detections:
         payload = {
             "draft_id": draft_id,
@@ -55,14 +51,12 @@ def remediate_content(draft_id):
         edit_resp = requests.post(f"{EDITS_SERVICE_URL}/edits", json=payload)
         if edit_resp.status_code != 201:
             return jsonify({"error": "failed to create edit"}), 502
-        created.append(edit_resp.json())
+        proposed.append(edit_resp.json())
 
-    # 5. return side-by-side preview
     return jsonify({
         "draft_id": draft_id,
-        "before": f"/{ORIGINAL_DIR}/{draft_id}.jpg",
-        "after": f"/{OUTPUT_DIR}/{os.path.basename(output_path)}",
-        "edits": created,
+        "original": f"/{ORIGINAL_DIR}/{draft_id}.jpg",
+        "proposed_edits": proposed,
     }), 200
 
 
@@ -71,20 +65,31 @@ def confirm_remediation(draft_id):
     resp = requests.get(f"{EDITS_SERVICE_URL}/drafts/{draft_id}/edits")
     if resp.status_code != 200:
         return jsonify({"error": "failed to fetch edits"}), 502
+    # only apply edits the user hasn't skipped
     pending = [e for e in resp.json() if e["status"] == "pending"]
     if not pending:
         return jsonify({"error": "no pending edits to confirm"}), 400
+
+    # do the pixel work now, with only the selected edits
+    original_path = os.path.join(ORIGINAL_DIR, f"{draft_id}.jpg")
+    output_path = apply_remediation(original_path, pending)
+
     confirmed = []
     for e in pending:
-        patch_resp = requests.patch(f"{EDITS_SERVICE_URL}/edits/{e['edit_id']}", json={"status": "applied"})
+        patch_resp = requests.patch(
+            f"{EDITS_SERVICE_URL}/edits/{e['edit_id']}",
+            json={"status": "applied"},
+        )
         if patch_resp.status_code != 200:
             return jsonify({"error": "failed to update edit"}), 502
         confirmed.append(patch_resp.json())
+
     return jsonify({
         "draft_id": draft_id,
         "confirmed": confirmed,
         "download_url": f"/drafts/{draft_id}/download",
     }), 200
+
 
 @remediate_bp.route("/drafts/<draft_id>/download", methods=["GET"])
 def download_remediated(draft_id):
@@ -112,6 +117,22 @@ def revert_edit(edit_id):
     patch_resp = requests.patch(f"{EDITS_SERVICE_URL}/edits/{edit_id}", json={"status": "reverted"})
     if patch_resp.status_code != 200:
         return jsonify({"error": "failed to revert edit"}), 502
+    return jsonify(patch_resp.json()), 200
+
+
+@remediate_bp.route("/edits/<edit_id>/restore", methods=["POST"])
+def restore_edit(edit_id):
+    """Un-skip a previously reverted edit, putting it back in the pending pool."""
+    resp = requests.get(f"{EDITS_SERVICE_URL}/edits/{edit_id}")
+    if resp.status_code == 404:
+        return jsonify({"error": "edit not found"}), 404
+    if resp.status_code != 200:
+        return jsonify({"error": "failed to fetch edit"}), 502
+    if resp.json()["status"] != "reverted":
+        return jsonify({"error": "only reverted edits can be restored"}), 400
+    patch_resp = requests.patch(f"{EDITS_SERVICE_URL}/edits/{edit_id}", json={"status": "pending"})
+    if patch_resp.status_code != 200:
+        return jsonify({"error": "failed to restore edit"}), 502
     return jsonify(patch_resp.json()), 200
 
 
