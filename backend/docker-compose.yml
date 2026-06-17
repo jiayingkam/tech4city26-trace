@@ -6,42 +6,82 @@ services:
     ports:
       - "5000:5000"
 
+  # ── Azure DB connectivity check ───────────────────────────────────────────
+  azure_db:
+    image: python:3.12-slim
+    env_file: ../.env
+    command: ["tail", "-f", "/dev/null"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket,os; s=socket.socket(); s.settimeout(5); s.connect((os.environ['DB_SERVER'],1433)); s.close()\""]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 5s
+
   # ── Atomic services ───────────────────────────────────────────────────────
   users:
     build: ./atomic/users
     ports:
       - "5001:5001"
     env_file: ../.env
+    depends_on:
+      azure_db:
+        condition: service_healthy
 
   content_drafts:
     build: ./atomic/content_drafts
     ports:
       - "5002:5002"
     env_file: ../.env
+    depends_on:
+      azure_db:
+        condition: service_healthy
 
   detections:
     build: ./atomic/detections
     ports:
       - "5003:5003"
     env_file: ../.env
+    depends_on:
+      azure_db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   edits:
     build: ./atomic/edits
     ports:
       - "5004:5004"
     env_file: ../.env
+    depends_on:
+      azure_db:
+        condition: service_healthy
+      remediate_content:
+        condition: service_healthy
 
   exposure_profiles:
     build: ./atomic/exposure_profiles
     ports:
       - "5005:5005"
     env_file: ../.env
+    depends_on:
+      azure_db:
+        condition: service_healthy
 
   quarantine_items:
     build: ./atomic/quarantine_items
     ports:
       - "5006:5006"
     env_file: ../.env
+    depends_on:
+      azure_db:
+        condition: service_healthy
+      quarantine_high_risk:
+        condition: service_healthy
 
   # ── Composite services ────────────────────────────────────────────────────
   compile_family_digest:
@@ -63,11 +103,29 @@ services:
     build: ./composite/quarantine_high_risk
     ports:
       - "5010:5010"
+    depends_on:
+      detections:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5010/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   remediate_content:
     build: ./composite/remediate_content
     ports:
       - "5011:5011"
+    depends_on:
+      detections:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5011/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   scan_draft:
     build: ./composite/scan_draft
