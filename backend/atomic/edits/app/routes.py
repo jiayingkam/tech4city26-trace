@@ -57,7 +57,7 @@ def delete_edit(edit_id):
     return "", 204
 
 # In professional setups, a Load Balancer and/or caller pings this /health URL every few seconds.
-# If your code gets stuck in an infinite loop while scraping Reddit,
+# If your code gets stuck in an infinite loop during a request,
 # it will stop responding to /health.
 @edits_bp.get("/health")
 def health():
