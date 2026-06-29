@@ -4,9 +4,34 @@ from .models import Edit
 
 edits_bp = Blueprint("edits", __name__)
 
+VALID_EDIT_TYPES = ("blur", "metadata_strip")
+VALID_STATUSES = ("pending", "applied", "reverted")
+
+
+def _json_body():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return None, (jsonify({"error": "request body must be a JSON object"}), 400)
+    return data, None
+
+
+def _missing_required(data, fields):
+    missing = [field for field in fields if data.get(field) in (None, "")]
+    if missing:
+        return jsonify({"error": "missing required field(s)", "fields": missing}), 400
+    return None
+
+
 @edits_bp.route("/edits", methods=["POST"])
 def create_edit():
-    data = request.get_json()
+    data, error = _json_body()
+    if error:
+        return error
+    error = _missing_required(data, ("draft_id", "edit_type"))
+    if error:
+        return error
+    if data["edit_type"] not in VALID_EDIT_TYPES:
+        return jsonify({"error": "invalid edit_type"}), 400
     edit = Edit(
         draft_id=data["draft_id"],
         edit_type=data["edit_type"],
@@ -38,9 +63,11 @@ def update_edit(edit_id):
     edit = db.session.get(Edit, edit_id)
     if edit is None:
         return jsonify({"error": "edit not found"}), 404
-    data = request.get_json()
+    data, error = _json_body()
+    if error:
+        return error
     new_status = data.get("status")
-    if new_status not in ("pending", "applied", "reverted"):
+    if new_status not in VALID_STATUSES:
         return jsonify({"error": "invalid status"}), 400
     edit.status = new_status
     db.session.commit()

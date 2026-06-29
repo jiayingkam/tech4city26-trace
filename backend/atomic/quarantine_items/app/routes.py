@@ -1,20 +1,38 @@
-from flask import Blueprint, jsonify
-from .db import db
-from .models import QuarantineItem
-
-bp = Blueprint("quarantine_items", __name__)
-
 from flask import Blueprint, request, jsonify
 from datetime import datetime, timezone, timedelta
+from .db import db
+from .models import QuarantineItem
 
 quarantine_bp = Blueprint("quarantine", __name__)
 
 DEFAULT_COOLDOWN_MINUTES = 15
+VALID_STATES = ("held", "accepted", "edited", "deleted")
+
+
+def _json_body():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return None, (jsonify({"error": "request body must be a JSON object"}), 400)
+    return data, None
+
+
+def _missing_required(data, fields):
+    missing = [field for field in fields if data.get(field) in (None, "")]
+    if missing:
+        return jsonify({"error": "missing required field(s)", "fields": missing}), 400
+    return None
 
 @quarantine_bp.route("/quarantine", methods=["POST"])
 def create_quarantine():
-    data = request.get_json()
+    data, error = _json_body()
+    if error:
+        return error
+    error = _missing_required(data, ("draft_id", "reason"))
+    if error:
+        return error
     minutes = data.get("cooldown_minutes", DEFAULT_COOLDOWN_MINUTES)
+    if type(minutes) is not int or minutes <= 0:
+        return jsonify({"error": "cooldown_minutes must be a positive integer"}), 400
     item = QuarantineItem(
         draft_id=data["draft_id"],
         reason=data["reason"],
@@ -60,9 +78,11 @@ def update_quarantine(quarantine_id):
     item = db.session.get(QuarantineItem, quarantine_id)
     if item is None:
         return jsonify({"error": "quarantine item not found"}), 404
-    data = request.get_json()
+    data, error = _json_body()
+    if error:
+        return error
     new_state = data.get("state")
-    if new_state not in ("held", "accepted", "edited", "deleted"):
+    if new_state not in VALID_STATES:
         return jsonify({"error": "invalid state"}), 400
     item.state = new_state
     db.session.commit()
@@ -82,6 +102,6 @@ def delete_quarantine(quarantine_id):
 # In professional setups, a Load Balancer and/or caller pings this /health URL every few seconds.
 # If your code gets stuck in an infinite loop during a request,
 # it will stop responding to /health.
-@bp.get("/health")
+@quarantine_bp.get("/health")
 def health():
     return jsonify({"status": "ok"}), 200

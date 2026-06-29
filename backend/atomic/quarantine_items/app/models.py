@@ -6,7 +6,7 @@ class QuarantineItem(db.Model):
     __tablename__ = "quarantine_items"
 
     quarantine_id = db.Column(db.String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    draft_id = db.Column(db.String, db.ForeignKey("content_drafts.draft_id"), nullable=False, index=True)
+    draft_id = db.Column(db.String, nullable=False, index=True)      # atomic service should not have foreign keys
     reason = db.Column(db.String, nullable=False)                    # plain-language: "Visible house number + GPS location"
     cooldown_expiry = db.Column(db.DateTime(timezone=True), nullable=False)
     state = db.Column(db.String, nullable=False, default="held")     # "held" | "accepted" | "edited" | "deleted"

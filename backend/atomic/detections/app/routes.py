@@ -4,10 +4,36 @@ from .models import Detection
 
 detections_bp = Blueprint("detections", __name__)
 
+VALID_CATEGORIES = ("face", "location", "document", "metadata", "contact", "financial")
+
+
+def _json_body():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return None, (jsonify({"error": "request body must be a JSON object"}), 400)
+    return data, None
+
+
+def _missing_required(data, fields):
+    missing = [field for field in fields if data.get(field) in (None, "")]
+    if missing:
+        return jsonify({"error": "missing required field(s)", "fields": missing}), 400
+    return None
+
+
 # yr functions/routes here
 @detections_bp.route("/detections", methods=["POST"])
 def create_detection():
-    data = request.get_json()
+    data, error = _json_body()
+    if error:
+        return error
+    error = _missing_required(data, ("draft_id", "category", "exposure_score"))
+    if error:
+        return error
+    if data["category"] not in VALID_CATEGORIES:
+        return jsonify({"error": "invalid category"}), 400
+    if type(data["exposure_score"]) is not int or data["exposure_score"] not in range(1, 6):
+        return jsonify({"error": "exposure_score must be an integer from 1 to 5"}), 400
     detection = Detection(
         draft_id=data["draft_id"],
         category=data["category"],

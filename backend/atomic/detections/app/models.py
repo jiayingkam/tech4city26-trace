@@ -6,7 +6,7 @@ class Detection(db.Model):
     __tablename__ = "detections"
 
     detection_id = db.Column(db.String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    draft_id = db.Column(db.String, db.ForeignKey("content_drafts.draft_id"), nullable=False, index=True)
+    draft_id = db.Column(db.String, nullable=False, index=True) #atomic service should not have foreign keys
     category = db.Column(db.String, nullable=False)              # face|location|document|metadata|contact|financial
     exposure_score = db.Column(db.Integer, nullable=False)       # 1–5
     confidence = db.Column(db.Float, nullable=True)              # 0.0–1.0

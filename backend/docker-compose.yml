@@ -20,6 +20,7 @@ services:
 
   # ── Atomic services ───────────────────────────────────────────────────────
   users:
+    platform: linux/amd64 # this is for apple silicon mac issue as the installation might fail w/o it.
     build: ./atomic/users
     ports:
       - "5001:5001"
@@ -29,6 +30,7 @@ services:
         condition: service_healthy
 
   content_drafts:
+    platform: linux/amd64
     build: ./atomic/content_drafts
     ports:
       - "5002:5002"
@@ -38,6 +40,7 @@ services:
         condition: service_healthy
 
   detections:
+    platform: linux/amd64
     build: ./atomic/detections
     ports:
       - "5003:5003"
@@ -53,6 +56,7 @@ services:
       start_period: 15s
 
   edits:
+    platform: linux/amd64
     build: ./atomic/edits
     ports:
       - "5004:5004"
@@ -60,10 +64,9 @@ services:
     depends_on:
       azure_db:
         condition: service_healthy
-      remediate_content:
-        condition: service_healthy
 
   exposure_profiles:
+    platform: linux/amd64
     build: ./atomic/exposure_profiles
     ports:
       - "5005:5005"
@@ -73,14 +76,13 @@ services:
         condition: service_healthy
 
   quarantine_items:
+    platform: linux/amd64
     build: ./atomic/quarantine_items
     ports:
       - "5006:5006"
     env_file: ../.env
     depends_on:
       azure_db:
-        condition: service_healthy
-      quarantine_high_risk:
         condition: service_healthy
 
   # ── Composite services ────────────────────────────────────────────────────
@@ -98,6 +100,11 @@ services:
     build: ./composite/generate_teachable_moment
     ports:
       - "5009:5009"
+    env_file: ../.env
+    depends_on:
+      detections:
+        condition: service_healthy
+ 
 
   quarantine_high_risk:
     build: ./composite/quarantine_high_risk
