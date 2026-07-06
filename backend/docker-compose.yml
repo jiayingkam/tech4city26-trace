@@ -64,6 +64,12 @@ services:
     depends_on:
       azure_db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5004/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   exposure_profiles:
     platform: linux/amd64
@@ -84,6 +90,12 @@ services:
     depends_on:
       azure_db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5006/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   # ── Composite services ────────────────────────────────────────────────────
   compile_family_digest:
@@ -113,6 +125,8 @@ services:
     depends_on:
       detections:
         condition: service_healthy
+      quarantine_items:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5010/health')\""]
       interval: 10s
@@ -126,6 +140,8 @@ services:
       - "5011:5011"
     depends_on:
       detections:
+        condition: service_healthy
+      edits:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5011/health')\""]
