@@ -96,9 +96,38 @@ flask run
 
 ## Running Test Scripts
 
+### Unit tests (mocked database)
+
+Runs each service's route tests with the database mocked out — fast, but never touches a real service or a real DB.
+
 ```bash
 docker compose -f docker-compose.yml -f docker-compose-dev.yml up --build edits quarantine_items
 ```
+
+### End-to-end smoke test
+
+Exercises the real running stack over HTTP — no mocks. Walks through the actual pipeline: a draft is created, `scan_draft` scans it for real (text via LLM, image via EXIF + LLM), and depending on what's found it's routed to `remediate_content` (propose → confirm → download → revert) or `quarantine_high_risk` (hold → cooldown). Covers Feature 1 (Pre-Post Scan) and Feature 2 (One-Tap Remediation & Quarantine).
+
+Needs a reachable Azure SQL DB and a working `OPENAI_API_KEY` in `.env` — this makes real, billed LLM calls, so it's not free and not instant.
+
+```bash
+cd backend
+
+# 1. Bring up the real stack (base compose file only — do NOT add
+#    docker-compose-dev.yml here, it overrides edits/quarantine_items to run
+#    pytest instead of their real server, which breaks everything downstream)
+docker compose -f docker-compose.yml up --build -d azure_db content_drafts detections edits \
+  quarantine_items scan_draft remediate_content quarantine_high_risk
+
+# 2. Build and run the smoke test as a standalone container on the same network
+docker build -t backend-smoke_test ./testing/smoke
+docker run --rm --network backend_default -v backend_draft_storage:/service/storage backend-smoke_test
+
+# 3. Tear down when done
+docker compose -f docker-compose.yml down
+```
+
+Output prints `[ok]` / `[warn]` / `[FAIL]` per step and exits non-zero if anything hard-fails. `[warn]` lines (e.g. the LLM routing to quarantine instead of remediate) aren't failures — those specific branches are LLM-dependent and treated as informational.
 
 ## Accessing Swagger
 
