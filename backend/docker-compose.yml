@@ -147,6 +147,8 @@ services:
     ports:
       - "5011:5011"
     depends_on:
+      content_drafts:
+        condition: service_healthy
       detections:
         condition: service_healthy
       edits:

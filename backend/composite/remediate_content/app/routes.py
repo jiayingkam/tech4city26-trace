@@ -5,15 +5,29 @@ from PIL import Image, ImageFilter
 
 remediate_bp = Blueprint("remediate_content", __name__)
 
+CONTENT_DRAFTS_SERVICE_URL = os.environ.get("CONTENT_DRAFTS_SERVICE_URL", "http://CONTENT_DRAFTS:5002")
 DETECTIONS_SERVICE_URL = os.environ.get("DETECTIONS_SERVICE_URL", "http://DETECTIONS:5003")
 EDITS_SERVICE_URL = os.environ.get("EDITS_SERVICE_URL", "http://EDITS:5004")
 
-ORIGINAL_DIR = "storage/originals"
 OUTPUT_DIR = "storage/remediated"
 
 
+def _get_original_path(draft_id):
+    """Looks up the draft's real stored file instead of assuming a .jpg extension."""
+    resp = requests.get(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}")
+    if resp.status_code == 404:
+        return None, (jsonify({"error": "draft not found"}), 404)
+    if resp.status_code != 200:
+        return None, (jsonify({"error": "failed to fetch draft"}), 502)
+    storage_path = resp.json().get("storage_path")
+    if not storage_path:
+        return None, (jsonify({"error": "draft has no stored file"}), 400)
+    return storage_path, None
+
+
 def apply_remediation(original_path, edits):
-    """Blur each region that has a box, then strip metadata. Returns output path."""
+    """Blur each region that has a box. Returns output path. Whatever extension
+    the original has is preserved, since the output name is derived from it."""
     img = Image.open(original_path)
 
     for e in edits:
@@ -29,6 +43,25 @@ def apply_remediation(original_path, edits):
     return out_path
 
 
+def _regenerate_output(draft_id):
+    """Rebuilds the remediated file from the original using only the edits
+    currently marked 'applied'. Must be called any time the applied set
+    changes (confirm/revert/restore) so the downloadable file always matches
+    the edits' current state rather than whatever was baked in at first confirm."""
+    original_path, error = _get_original_path(draft_id)
+    if error:
+        return None, error
+    if not os.path.exists(original_path):
+        return None, (jsonify({"error": "original file not found"}), 404)
+
+    resp = requests.get(f"{EDITS_SERVICE_URL}/drafts/{draft_id}/edits")
+    if resp.status_code != 200:
+        return None, (jsonify({"error": "failed to fetch edits"}), 502)
+    applied = [e for e in resp.json() if e["status"] == "applied"]
+
+    return apply_remediation(original_path, applied), None
+
+
 @remediate_bp.route("/drafts/<draft_id>/remediate", methods=["POST"])
 def remediate_content(draft_id):
     # 1. fetch detections, low/medium risk only (>=4 is quarantine's job)
@@ -40,12 +73,19 @@ def remediate_content(draft_id):
         return jsonify({"error": "nothing to remediate"}), 400
 
     # text leaks (phone numbers, addresses, birthdates in a caption) need the
-    # user to edit their caption, not an image blur/strip — pulling them out
-    # here instead of letting them fall through to "no bounding_region ->
-    # metadata_strip", which would silently create a bogus image edit for a
-    # detection with no image to edit.
+    # user to edit their caption, not an image blur/strip — pulled out here
+    # instead of falling through to "no bounding_region -> metadata_strip",
+    # which would create a bogus image edit for a detection with no image.
     text_detections = [d for d in detections if d.get("source_type") == "text"]
     image_detections = [d for d in detections if d.get("source_type") != "text"]
+
+    # only look up the stored file if there's actually image work to do —
+    # a text-only draft has no storage_path and shouldn't need one
+    original_path = None
+    if image_detections:
+        original_path, error = _get_original_path(draft_id)
+        if error:
+            return error
 
     # 2. propose one pending edit per image/metadata detection — no pixel work yet
     #    the user can skip any of these before confirming
@@ -66,7 +106,7 @@ def remediate_content(draft_id):
 
     return jsonify({
         "draft_id": draft_id,
-        "original": f"/{ORIGINAL_DIR}/{draft_id}.jpg",
+        "original": f"/{original_path}" if original_path else None,
         "proposed_edits": proposed,
         # no automated fix exists for these yet — surfaced so the caller can
         # prompt the user to edit their caption text directly
@@ -90,10 +130,6 @@ def confirm_remediation(draft_id):
     if not pending:
         return jsonify({"error": "no pending edits to confirm"}), 400
 
-    # do the pixel work now, with only the selected edits
-    original_path = os.path.join(ORIGINAL_DIR, f"{draft_id}.jpg")
-    output_path = apply_remediation(original_path, pending)
-
     confirmed = []
     for e in pending:
         patch_resp = requests.patch(
@@ -103,6 +139,13 @@ def confirm_remediation(draft_id):
         if patch_resp.status_code != 200:
             return jsonify({"error": "failed to update edit"}), 502
         confirmed.append(patch_resp.json())
+
+    # rebuild from the original using every currently-applied edit, not just
+    # the ones confirmed this call, so repeated confirm/revert/restore cycles
+    # always produce a file consistent with the edits' current state
+    _, error = _regenerate_output(draft_id)
+    if error:
+        return error
 
     return jsonify({
         "draft_id": draft_id,
@@ -120,11 +163,16 @@ def download_remediated(draft_id):
     if not any(e["status"] == "applied" for e in resp.json()):
         return jsonify({"error": "no confirmed remediation for this draft"}), 400
 
-    path = os.path.join(OUTPUT_DIR, f"{draft_id}.jpg")
+    original_path, error = _get_original_path(draft_id)
+    if error:
+        return error
+
+    filename = os.path.basename(original_path)
+    path = os.path.join(OUTPUT_DIR, filename)
     if not os.path.exists(path):
         return jsonify({"error": "remediated file not found"}), 404
 
-    return send_file(path, as_attachment=True, download_name=f"trace_clean_{draft_id}.jpg")
+    return send_file(path, as_attachment=True, download_name=f"trace_clean_{filename}")
 
 
 @remediate_bp.route("/edits/<edit_id>/revert", methods=["POST"])
@@ -134,15 +182,29 @@ def revert_edit(edit_id):
         return jsonify({"error": "edit not found"}), 404
     if resp.status_code != 200:
         return jsonify({"error": "failed to fetch edit"}), 502
+    edit = resp.json()
+    was_applied = edit["status"] == "applied"
+
     patch_resp = requests.patch(f"{EDITS_SERVICE_URL}/edits/{edit_id}", json={"status": "reverted"})
     if patch_resp.status_code != 200:
         return jsonify({"error": "failed to revert edit"}), 502
+
+    # only the pixel-baked ("applied") edits affect the served file — undoing
+    # a still-pending (not yet confirmed) edit has nothing to regenerate
+    if was_applied:
+        _, error = _regenerate_output(edit["draft_id"])
+        if error:
+            return error
+
     return jsonify(patch_resp.json()), 200
 
 
 @remediate_bp.route("/edits/<edit_id>/restore", methods=["POST"])
 def restore_edit(edit_id):
-    """Un-skip a previously reverted edit, putting it back in the pending pool."""
+    """Un-skip a previously reverted edit, putting it back in the pending pool.
+    It re-enters the output file on the next /remediate/confirm call, mirroring
+    how a freshly-proposed edit is applied — restore does not immediately
+    re-bake it in."""
     resp = requests.get(f"{EDITS_SERVICE_URL}/edits/{edit_id}")
     if resp.status_code == 404:
         return jsonify({"error": "edit not found"}), 404
