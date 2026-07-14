@@ -3,14 +3,21 @@ import { ref } from 'vue'
 import PhoneFrame from './components/PhoneFrame.vue'
 import ComposeView from './views/ComposeView.vue'
 import ResultsView from './views/ResultsView.vue'
+import RemediationView from './views/RemediationView.vue'
+import QuarantineView from './views/QuarantineView.vue'
 import { uploadPost, processDraft, getDetections } from './api'
 
 // No auth yet (users service is still a stub) — every post shares this owner_id.
 const DEMO_OWNER_ID = 'demo-user'
 
-const step = ref(1) // 1 compose, 2 scanning, 3 results, 4 error
+const step = ref(1) // 1 compose, 2 scanning, 3 results, 4 action, 5 error
 const photoPreviewUrl = ref(null)
 const detections = ref([])
+const draftId = ref(null)
+const scanOutcome = ref(null)
+// Set directly from scanOutcome.remediation, or replaced by quarantine's
+// "edit" handoff, which also produces a remediation payload to act on.
+const activeRemediation = ref(null)
 const errorMessage = ref('')
 
 async function handleShare(payload) {
@@ -28,14 +35,23 @@ async function handleShare(payload) {
       caption: payload.caption,
       photoFile: payload.photoFile,
     })
+    draftId.value = draft.draft_id
 
-    await processDraft(draft.draft_id)
+    scanOutcome.value = await processDraft(draft.draft_id)
     detections.value = await getDetections(draft.draft_id)
+    if (scanOutcome.value.outcome === 'remediated') {
+      activeRemediation.value = scanOutcome.value.remediation
+    }
     step.value = 3
   } catch (err) {
     errorMessage.value = err.message || 'Something went wrong. Please try again.'
-    step.value = 4
+    step.value = 5
   }
+}
+
+function handleQuarantineEdit(remediation) {
+  activeRemediation.value = remediation
+  scanOutcome.value = { ...scanOutcome.value, outcome: 'remediated' }
 }
 
 function restart() {
@@ -43,6 +59,9 @@ function restart() {
   if (photoPreviewUrl.value) URL.revokeObjectURL(photoPreviewUrl.value)
   photoPreviewUrl.value = null
   detections.value = []
+  draftId.value = null
+  scanOutcome.value = null
+  activeRemediation.value = null
   errorMessage.value = ''
 }
 </script>
@@ -69,10 +88,27 @@ function restart() {
         :photo-url="photoPreviewUrl"
         :detections="detections"
         @restart="restart"
+        @continue="step = 4"
       />
 
-      <!-- Step 4: Error -->
-      <div v-else-if="step === 4" class="p-4 text-center">
+      <!-- Step 4: Take action (remediate or quarantine) -->
+      <RemediationView
+        v-else-if="step === 4 && scanOutcome?.outcome === 'remediated'"
+        :draft-id="draftId"
+        :remediation="activeRemediation"
+        :photo-url="photoPreviewUrl"
+        @restart="restart"
+      />
+      <QuarantineView
+        v-else-if="step === 4 && scanOutcome?.outcome === 'quarantined'"
+        :quarantine="scanOutcome.quarantine"
+        :photo-url="photoPreviewUrl"
+        @restart="restart"
+        @edit="handleQuarantineEdit"
+      />
+
+      <!-- Step 5: Error -->
+      <div v-else-if="step === 5" class="p-4 text-center">
         <p class="text-danger fw-semibold">{{ errorMessage }}</p>
         <button class="btn btn-outline-secondary" @click="restart">Try again</button>
       </div>

@@ -78,11 +78,16 @@ def _regenerate_output(draft_id):
 
 @remediate_bp.route("/drafts/<draft_id>/remediate", methods=["POST"])
 def remediate_content(draft_id):
-    # 1. fetch detections, low/medium risk only (>=4 is quarantine's job)
+    # No score filter here: when scan_draft calls this directly, every
+    # detection present is already <=3 by construction (it only reaches here
+    # when nothing scored >=4). When quarantine_high_risk's "edit" action
+    # calls this instead, the detections ARE the >=4 finding(s) that caused
+    # the hold in the first place — filtering those out left this route with
+    # nothing to do and "edit" permanently broken for quarantined items.
     resp = requests.get(f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections")
     if resp.status_code != 200:
         return jsonify({"error": "failed to fetch detections"}), 502
-    detections = [d for d in resp.json() if d["exposure_score"] <= 3]
+    detections = resp.json()
     if not detections:
         return jsonify({"error": "nothing to remediate"}), 400
 

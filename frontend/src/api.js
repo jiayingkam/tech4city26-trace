@@ -51,8 +51,11 @@ export async function restoreEdit(editId) {
   return parseOrThrow(res)
 }
 
-export async function getCooldown(quarantineId) {
-  const res = await fetch(`${QUARANTINE_HIGH_RISK_URL}/quarantine/${quarantineId}/cooldown`)
+// quarantine_high_risk has no standalone /quarantine/<id>/cooldown route — that
+// lives on the atomic quarantine_items service. The composite-level way to poll
+// cooldown status is this drafts-scoped list, which comes back pre-enriched.
+export async function getQuarantineForDraft(draftId) {
+  const res = await fetch(`${QUARANTINE_HIGH_RISK_URL}/drafts/${draftId}/quarantine`)
   return parseOrThrow(res)
 }
 

@@ -6,10 +6,9 @@ const props = defineProps({
   detections: { type: Array, default: () => [] },
 })
 
-defineEmits(['restart'])
+defineEmits(['restart', 'continue'])
 
 const CATEGORY_LABELS = {
-  face: 'Face',
   location: 'Location detail',
   document: 'Identifying document',
 }
@@ -90,7 +89,8 @@ const hasFindings = computed(() => props.detections.length > 0)
       </template>
     </div>
 
-    <div class="p-3 border-top">
+    <div class="p-3 border-top d-flex flex-column gap-2">
+      <button v-if="hasFindings" class="btn btn-primary w-100" @click="$emit('continue')">Continue</button>
       <button class="btn btn-outline-secondary w-100" @click="$emit('restart')">Back to start</button>
     </div>
   </div>
