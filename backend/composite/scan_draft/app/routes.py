@@ -31,19 +31,22 @@ def run_scan(draft_id):
     draft = draft_resp.json()
 
     content_type = draft["content_type"]
-    if content_type == "text":
-        findings = scan_text(draft.get("text_content"))
-    elif content_type == "image":
-        findings = []
+    if content_type == "video":
+        # video scanning isn't built yet — Phase 1 covers text + image only
+        return None, (jsonify({"error": "video scanning not yet supported"}), 501)
+
+    findings = []
+    if content_type == "image":
         storage_path = draft.get("storage_path")
         if storage_path:
             storage_path = os.path.join(SERVICE_ROOT, storage_path)
         if storage_path and os.path.exists(storage_path):
             findings += scan_metadata(storage_path)
             findings += scan_image(storage_path)
-    else:
-        # video scanning isn't built yet — Phase 1 covers text + image only
-        return None, (jsonify({"error": "video scanning not yet supported"}), 501)
+
+    # A caption can accompany either a text-only post or an image/video post —
+    # scan it whenever it's present, not just when content_type is "text".
+    findings += scan_text(draft.get("text_content"))
 
     created = []
     for finding in findings:

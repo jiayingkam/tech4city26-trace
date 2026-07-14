@@ -6,15 +6,21 @@ from langchain_openai import ChatOpenAI
 from PIL import Image
 
 _SYSTEM_PROMPT = (
-    "You scan a photo for anything that could let a stranger identify or locate the "
-    "person who posted it. Flag faces as category 'face'; house numbers, street "
-    "signs, and other location-identifying details as 'location'; and school "
-    "uniforms, crests, or license plates as 'document'. For each finding give "
-    "exposure_score 1 (low risk) to 5 (high risk), confidence 0.0-1.0, a one-line "
-    "plain-language detail, and a bounding box as FRACTIONS of image width/height "
-    "(x_frac, y_frac, w_frac, h_frac, each 0-1) so it maps to pixels at any "
-    "resolution. Omit bounding_box only if the finding has no single localizable "
-    "region. Return no findings if the photo is safe."
+    "You scan a photo for anything that could let a stranger locate the person "
+    "who posted it. Flag house numbers, street signs, and other "
+    "location-identifying details as category 'location'; and school uniforms, "
+    "crests, or license plates as 'document'. Do NOT flag faces on their own — "
+    "a face by itself, with no other identifying cue in the photo, is normal to "
+    "post and should never be flagged. If there are multiple distinct instances "
+    "of the same category — several house numbers, several license plates — "
+    "return one separate finding per instance, each with its own bounding box. "
+    "Never summarize multiple instances into a single finding or a single box "
+    "spanning several of them. For each finding give exposure_score 1 (low risk) "
+    "to 5 (high risk), confidence 0.0-1.0, a one-line plain-language detail, and "
+    "a bounding box as FRACTIONS of image width/height (x_frac, y_frac, w_frac, "
+    "h_frac, each 0-1) so it maps to pixels at any resolution. Omit bounding_box "
+    "only if the finding has no single localizable region. Return no findings "
+    "if the photo is safe."
 )
 
 
@@ -26,7 +32,7 @@ class BoundingBoxFrac(BaseModel):
 
 
 class VisualFinding(BaseModel):
-    category: Literal["face", "location", "document"]
+    category: Literal["location", "document"]
     exposure_score: int = Field(ge=1, le=5)
     confidence: float = Field(ge=0.0, le=1.0)
     detail: str
