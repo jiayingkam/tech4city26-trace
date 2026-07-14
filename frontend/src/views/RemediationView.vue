@@ -58,7 +58,7 @@ function drawPreview() {
   const ctx = canvas.getContext('2d')
   ctx.drawImage(sourceImage, 0, 0)
 
-  ctx.fillStyle = 'rgba(20, 20, 20, 0.85)'
+  ctx.fillStyle = 'rgb(20, 20, 20)'
   for (const edit of blurEdits.value) {
     if (edit.status === 'reverted' || !edit.region_affected) continue
     const { x, y, w, h } = edit.region_affected
