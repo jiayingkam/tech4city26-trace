@@ -19,9 +19,17 @@ const scanOutcome = ref(null)
 // "edit" handoff, which also produces a remediation payload to act on.
 const activeRemediation = ref(null)
 const errorMessage = ref('')
+// Set while a request is being retried after a network-level failure — almost
+// always a Render free-tier service waking up from an idle spin-down.
+const wakingUp = ref(false)
+
+function onRetry() {
+  wakingUp.value = true
+}
 
 async function handleShare(payload) {
   errorMessage.value = ''
+  wakingUp.value = false
   step.value = 2
 
   if (photoPreviewUrl.value) URL.revokeObjectURL(photoPreviewUrl.value)
@@ -34,11 +42,11 @@ async function handleShare(payload) {
       sourceApp: 'trace-web',
       caption: payload.caption,
       photoFile: payload.photoFile,
-    })
+    }, onRetry)
     draftId.value = draft.draft_id
 
-    scanOutcome.value = await processDraft(draft.draft_id)
-    detections.value = await getDetections(draft.draft_id)
+    scanOutcome.value = await processDraft(draft.draft_id, onRetry)
+    detections.value = await getDetections(draft.draft_id, onRetry)
     if (scanOutcome.value.outcome === 'remediated') {
       activeRemediation.value = scanOutcome.value.remediation
     }
@@ -46,6 +54,8 @@ async function handleShare(payload) {
   } catch (err) {
     errorMessage.value = err.message || 'Something went wrong. Please try again.'
     step.value = 5
+  } finally {
+    wakingUp.value = false
   }
 }
 
@@ -78,8 +88,14 @@ function restart() {
         <div class="spinner-border text-primary mb-3" role="status">
           <span class="visually-hidden">Scanning…</span>
         </div>
-        <p class="fw-semibold mb-1">Scanning your post</p>
-        <p class="text-muted small">Checking for faces, locations, and hidden data…</p>
+        <template v-if="wakingUp">
+          <p class="fw-semibold mb-1">Waking up the server</p>
+          <p class="text-muted small">The backend went idle — this can take up to a minute on the first request.</p>
+        </template>
+        <template v-else>
+          <p class="fw-semibold mb-1">Scanning your post</p>
+          <p class="text-muted small">Checking for faces, locations, and hidden data…</p>
+        </template>
       </div>
 
       <!-- Step 3: Results -->

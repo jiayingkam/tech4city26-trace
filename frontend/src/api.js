@@ -10,7 +10,24 @@ async function parseOrThrow(res) {
   return data
 }
 
-export async function uploadPost({ ownerId, contentType, sourceApp, caption, photoFile }) {
+// Render's free tier spins services down after 15 min idle. The first request
+// back can fail at the network level (connection reset) while the container
+// is still booting, rather than just being slow — so we retry on fetch()
+// throwing, not on ordinary HTTP error responses, with backoff long enough to
+// cover a typical ~30-50s cold start.
+async function fetchWithRetry(url, options, { retries = 4, baseDelayMs = 3000, onRetry } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetch(url, options)
+    } catch (err) {
+      if (attempt >= retries) throw err
+      onRetry?.(attempt + 1, retries)
+      await new Promise((resolve) => setTimeout(resolve, baseDelayMs * 2 ** attempt))
+    }
+  }
+}
+
+export async function uploadPost({ ownerId, contentType, sourceApp, caption, photoFile }, onRetry) {
   const form = new FormData()
   form.append('owner_id', ownerId)
   form.append('content_type', contentType)
@@ -18,22 +35,22 @@ export async function uploadPost({ ownerId, contentType, sourceApp, caption, pho
   if (caption) form.append('text_content', caption)
   if (photoFile) form.append('file', photoFile)
 
-  const res = await fetch(`${UPLOAD_POST_URL}/drafts`, { method: 'POST', body: form })
+  const res = await fetchWithRetry(`${UPLOAD_POST_URL}/drafts`, { method: 'POST', body: form }, { onRetry })
   return parseOrThrow(res)
 }
 
-export async function processDraft(draftId) {
-  const res = await fetch(`${SCAN_DRAFT_URL}/drafts/${draftId}/process`, { method: 'POST' })
+export async function processDraft(draftId, onRetry) {
+  const res = await fetchWithRetry(`${SCAN_DRAFT_URL}/drafts/${draftId}/process`, { method: 'POST' }, { onRetry })
   return parseOrThrow(res)
 }
 
-export async function getDetections(draftId) {
-  const res = await fetch(`${DETECTIONS_URL}/drafts/${draftId}/detections`)
+export async function getDetections(draftId, onRetry) {
+  const res = await fetchWithRetry(`${DETECTIONS_URL}/drafts/${draftId}/detections`, undefined, { onRetry })
   return parseOrThrow(res)
 }
 
 export async function confirmRemediation(draftId) {
-  const res = await fetch(`${REMEDIATE_CONTENT_URL}/drafts/${draftId}/remediate/confirm`, { method: 'POST' })
+  const res = await fetchWithRetry(`${REMEDIATE_CONTENT_URL}/drafts/${draftId}/remediate/confirm`, { method: 'POST' })
   return parseOrThrow(res)
 }
 
@@ -42,12 +59,12 @@ export function downloadUrl(draftId) {
 }
 
 export async function revertEdit(editId) {
-  const res = await fetch(`${REMEDIATE_CONTENT_URL}/edits/${editId}/revert`, { method: 'POST' })
+  const res = await fetchWithRetry(`${REMEDIATE_CONTENT_URL}/edits/${editId}/revert`, { method: 'POST' })
   return parseOrThrow(res)
 }
 
 export async function restoreEdit(editId) {
-  const res = await fetch(`${REMEDIATE_CONTENT_URL}/edits/${editId}/restore`, { method: 'POST' })
+  const res = await fetchWithRetry(`${REMEDIATE_CONTENT_URL}/edits/${editId}/restore`, { method: 'POST' })
   return parseOrThrow(res)
 }
 
@@ -55,21 +72,21 @@ export async function restoreEdit(editId) {
 // lives on the atomic quarantine_items service. The composite-level way to poll
 // cooldown status is this drafts-scoped list, which comes back pre-enriched.
 export async function getQuarantineForDraft(draftId) {
-  const res = await fetch(`${QUARANTINE_HIGH_RISK_URL}/drafts/${draftId}/quarantine`)
+  const res = await fetchWithRetry(`${QUARANTINE_HIGH_RISK_URL}/drafts/${draftId}/quarantine`)
   return parseOrThrow(res)
 }
 
 export async function releaseQuarantine(quarantineId) {
-  const res = await fetch(`${QUARANTINE_HIGH_RISK_URL}/quarantine/${quarantineId}/release`, { method: 'POST' })
+  const res = await fetchWithRetry(`${QUARANTINE_HIGH_RISK_URL}/quarantine/${quarantineId}/release`, { method: 'POST' })
   return parseOrThrow(res)
 }
 
 export async function editQuarantine(quarantineId) {
-  const res = await fetch(`${QUARANTINE_HIGH_RISK_URL}/quarantine/${quarantineId}/edit`, { method: 'POST' })
+  const res = await fetchWithRetry(`${QUARANTINE_HIGH_RISK_URL}/quarantine/${quarantineId}/edit`, { method: 'POST' })
   return parseOrThrow(res)
 }
 
 export async function deleteQuarantine(quarantineId) {
-  const res = await fetch(`${QUARANTINE_HIGH_RISK_URL}/quarantine/${quarantineId}/delete`, { method: 'POST' })
+  const res = await fetchWithRetry(`${QUARANTINE_HIGH_RISK_URL}/quarantine/${quarantineId}/delete`, { method: 'POST' })
   return parseOrThrow(res)
 }
