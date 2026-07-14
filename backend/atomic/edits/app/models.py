@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 class Edit(db.Model):
     __tablename__ = "edits"
 
-    edit_id = db.Column(db.String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    draft_id = db.Column(db.String, nullable=False, index=True)      # atomic service should not have foreign keys
+    edit_id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    draft_id = db.Column(db.String(36), nullable=False, index=True)      # atomic service should not have foreign keys
     edit_type = db.Column(db.String, nullable=False)                 # "blur" | "metadata_strip"
     region_affected = db.Column(db.JSON, nullable=True)              # [{"x":120,"y":340,"w":80,"h":30}], null for strips
     status = db.Column(db.String, nullable=False, default="pending") # "pending" | "applied" | "reverted"

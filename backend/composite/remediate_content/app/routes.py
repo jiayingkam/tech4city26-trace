@@ -39,10 +39,18 @@ def remediate_content(draft_id):
     if not detections:
         return jsonify({"error": "nothing to remediate"}), 400
 
-    # 2. propose one pending edit per detection — no pixel work yet
+    # text leaks (phone numbers, addresses, birthdates in a caption) need the
+    # user to edit their caption, not an image blur/strip — pulling them out
+    # here instead of letting them fall through to "no bounding_region ->
+    # metadata_strip", which would silently create a bogus image edit for a
+    # detection with no image to edit.
+    text_detections = [d for d in detections if d.get("source_type") == "text"]
+    image_detections = [d for d in detections if d.get("source_type") != "text"]
+
+    # 2. propose one pending edit per image/metadata detection — no pixel work yet
     #    the user can skip any of these before confirming
     proposed = []
-    for d in detections:
+    for d in image_detections:
         payload = {
             "draft_id": draft_id,
             "edit_type": "blur" if d.get("bounding_region") else "metadata_strip",
@@ -53,10 +61,22 @@ def remediate_content(draft_id):
             return jsonify({"error": "failed to create edit"}), 502
         proposed.append(edit_resp.json())
 
+    if not proposed and not text_detections:
+        return jsonify({"error": "nothing to remediate"}), 400
+
     return jsonify({
         "draft_id": draft_id,
         "original": f"/{ORIGINAL_DIR}/{draft_id}.jpg",
         "proposed_edits": proposed,
+        # no automated fix exists for these yet — surfaced so the caller can
+        # prompt the user to edit their caption text directly
+        "needs_text_redaction": [
+            {
+                "detection_id": d["detection_id"],
+                "category": d["category"],
+                "detail": d.get("detail"),
+            } for d in text_detections
+        ],
     }), 200
 
 

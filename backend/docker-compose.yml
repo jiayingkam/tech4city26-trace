@@ -7,15 +7,17 @@ services:
       - "5000:5000"
 
   # ── Azure DB connectivity check ───────────────────────────────────────────
+  # Runs a real login + query (not just a TCP connect) so that dependents
+  # don't start against a free/serverless-tier DB that is still resuming
+  # from auto-pause (Azure error 40925).
   azure_db:
-    image: python:3.12-slim
+    build: ./azure_db
     env_file: ../.env
-    command: ["tail", "-f", "/dev/null"]
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import socket,os; s=socket.socket(); s.settimeout(5); s.connect((os.environ['DB_SERVER'],1433)); s.close()\""]
+      test: ["CMD", "python", "healthcheck.py"]
       interval: 10s
       timeout: 10s
-      retries: 5
+      retries: 12
       start_period: 5s
 
   # ── Atomic services ───────────────────────────────────────────────────────
@@ -38,6 +40,12 @@ services:
     depends_on:
       azure_db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   detections:
     platform: linux/amd64
@@ -154,7 +162,10 @@ services:
     build: ./composite/scan_draft
     ports:
       - "5012:5012"
+    env_file: ../.env
     depends_on:
+      content_drafts:
+        condition: service_healthy
       detections:
         condition: service_healthy
       quarantine_high_risk:

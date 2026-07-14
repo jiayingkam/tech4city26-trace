@@ -5,6 +5,7 @@ from .models import Detection
 detections_bp = Blueprint("detections", __name__)
 
 VALID_CATEGORIES = ("face", "location", "document", "metadata", "contact", "financial")
+VALID_SOURCE_TYPES = ("text", "image", "video")
 
 
 def _json_body():
@@ -27,19 +28,23 @@ def create_detection():
     data, error = _json_body()
     if error:
         return error
-    error = _missing_required(data, ("draft_id", "category", "exposure_score"))
+    error = _missing_required(data, ("draft_id", "category", "source_type", "exposure_score"))
     if error:
         return error
     if data["category"] not in VALID_CATEGORIES:
         return jsonify({"error": "invalid category"}), 400
+    if data["source_type"] not in VALID_SOURCE_TYPES:
+        return jsonify({"error": "invalid source_type"}), 400
     if type(data["exposure_score"]) is not int or data["exposure_score"] not in range(1, 6):
         return jsonify({"error": "exposure_score must be an integer from 1 to 5"}), 400
     detection = Detection(
         draft_id=data["draft_id"],
         category=data["category"],
+        source_type=data["source_type"],
         exposure_score=data["exposure_score"],
         confidence=data.get("confidence"),
         model_version=data.get("model_version"),
+        detail=data.get("detail"),
         bounding_region=data.get("bounding_region"),  # null for text/metadata
     )
     db.session.add(detection)

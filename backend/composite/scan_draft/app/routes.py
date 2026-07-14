@@ -2,11 +2,57 @@ import os
 import requests
 from flask import Blueprint, jsonify
 
+from .scanners.exif_scanner import scan_metadata
+from .scanners.text_scanner import scan_text
+from .scanners.vision_scanner import scan_image
+
 bp = Blueprint("scan_draft", __name__)
 
+CONTENT_DRAFTS_SERVICE_URL = os.environ.get("CONTENT_DRAFTS_SERVICE_URL", "http://CONTENT_DRAFTS:5002")
 DETECTIONS_SERVICE_URL = os.environ.get("DETECTIONS_SERVICE_URL", "http://DETECTIONS:5003")
 QUARANTINE_HIGH_RISK_SERVICE_URL = os.environ.get("QUARANTINE_HIGH_RISK_SERVICE_URL", "http://QUARANTINE_HIGH_RISK:5010")
 REMEDIATE_CONTENT_SERVICE_URL = os.environ.get("REMEDIATE_CONTENT_SERVICE_URL", "http://REMEDIATE_CONTENT:5011")
+
+
+def run_scan(draft_id):
+    """Reads the draft from content_drafts, runs the classifier for its content
+    type, and writes each finding to detections. Returns (created_detections, None)
+    on success or (None, (response, status)) on failure."""
+    draft_resp = requests.get(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}")
+    if draft_resp.status_code == 404:
+        return None, (jsonify({"error": "draft not found"}), 404)
+    if draft_resp.status_code != 200:
+        return None, (jsonify({"error": "failed to fetch draft"}), 502)
+    draft = draft_resp.json()
+
+    content_type = draft["content_type"]
+    if content_type == "text":
+        findings = scan_text(draft.get("text_content"))
+    elif content_type == "image":
+        findings = []
+        storage_path = draft.get("storage_path")
+        if storage_path and os.path.exists(storage_path):
+            findings += scan_metadata(storage_path)
+            findings += scan_image(storage_path)
+    else:
+        # video scanning isn't built yet — Phase 1 covers text + image only
+        return None, (jsonify({"error": "video scanning not yet supported"}), 501)
+
+    created = []
+    for finding in findings:
+        d_resp = requests.post(f"{DETECTIONS_SERVICE_URL}/detections", json={"draft_id": draft_id, **finding})
+        if d_resp.status_code != 201:
+            return None, (jsonify({"error": "failed to record detection"}), 502)
+        created.append(d_resp.json())
+    return created, None
+
+
+@bp.route("/drafts/<draft_id>/scan", methods=["POST"])
+def scan_draft_endpoint(draft_id):
+    created, error = run_scan(draft_id)
+    if error:
+        return error
+    return jsonify({"draft_id": draft_id, "detections": created}), 201
 
 
 @bp.route("/drafts/<draft_id>/process", methods=["POST"])
@@ -16,8 +62,18 @@ def process_draft(draft_id):
     if resp.status_code != 200:
         return jsonify({"error": "failed to fetch detections"}), 502
     detections = resp.json()
+
     if not detections:
-        return jsonify({"error": "no detections found for this draft"}), 400
+        # not scanned yet this call — scan once, then continue with the result
+        detections, error = run_scan(draft_id)
+        if error:
+            return error
+        if not detections:
+            return jsonify({
+                "draft_id": draft_id,
+                "outcome": "clear",
+                "message": "no sensitive content detected",
+            }), 200
 
     # any region at score >=4 puts the whole draft on hold for human review
     if any(d["exposure_score"] >= 4 for d in detections):
