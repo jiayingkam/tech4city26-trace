@@ -40,6 +40,7 @@ DB_USER=<db-username>
 DB_PASSWORD=<db-password>
 OPENAI_API_KEY=<your-openai-api-key>
 CLOUD_VISION_KEY=<your-google-cloud-vision-api-key>
+CLOUD_VIDEO_INTELLIGENCE_KEY=<your-google-cloud-video-intelligence-api-key>
 ```
 
 `CLOUD_VISION_KEY` is a plain Google Cloud API key (Cloud Vision API enabled on the project) — used by `scan_draft` for OCR text/location detection in photos.
@@ -152,7 +153,7 @@ Output prints `[ok]` / `[warn]` / `[FAIL]` per step and exits non-zero if anythi
 
 ## Accessing Swagger
 
-Once all services are running, open the combined Swagger UI in your browser:
+Once all containers are running, open the combined Swagger UI in your browser:
 
 ```
 http://localhost:5000/docs
