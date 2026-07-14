@@ -96,3 +96,4 @@ export async function deleteQuarantine(quarantineId) {
   const res = await fetchWithRetry(`${QUARANTINE_HIGH_RISK_URL}/quarantine/${quarantineId}/delete`, { method: 'POST' })
   return parseOrThrow(res)
 }
+
