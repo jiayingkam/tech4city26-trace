@@ -3,7 +3,7 @@ import requests
 from flask import Blueprint, request, jsonify
 from werkzeug.utils import secure_filename
 
-bp = Blueprint("upload_file", __name__)
+bp = Blueprint("upload_post", __name__)
 
 CONTENT_DRAFTS_SERVICE_URL = os.environ.get("CONTENT_DRAFTS_SERVICE_URL", "http://CONTENT_DRAFTS:5002")
 
@@ -65,6 +65,30 @@ def upload_draft():
         draft = patch_resp.json()
 
     return jsonify(draft), 201
+
+
+@bp.route("/drafts/<draft_id>/caption", methods=["PATCH"])
+def insert_caption(draft_id):
+    """Sets (or clears) the caption on an already-created draft. An empty
+    string is a valid caption — most posts have no caption at all, and the
+    frontend may finish typing one after the photo has already started
+    uploading/scanning."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or "text_content" not in data:
+        return jsonify({"error": "text_content is required (use an empty string for no caption)"}), 400
+    text_content = data["text_content"]
+    if not isinstance(text_content, str):
+        return jsonify({"error": "text_content must be a string"}), 400
+
+    patch_resp = requests.patch(
+        f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}",
+        json={"text_content": text_content},
+    )
+    if patch_resp.status_code == 404:
+        return jsonify({"error": "draft not found"}), 404
+    if patch_resp.status_code != 200:
+        return jsonify({"error": "failed to insert caption", "detail": patch_resp.json()}), 502
+    return jsonify(patch_resp.json()), 200
 
 
 # In professional setups, a Load Balancer and/or caller pings this /health URL every few seconds.

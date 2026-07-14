@@ -191,8 +191,8 @@ services:
     ports:
       - "5013:5013"
 
-  upload_file:
-    build: ./composite/upload_file
+  upload_post:
+    build: ./composite/upload_post
     ports:
       - "5014:5014"
     volumes:
@@ -207,7 +207,7 @@ services:
       retries: 5
       start_period: 15s
 
-# Shared between upload_file (writes the original file that was shared), scan_draft
+# Shared between upload_post (writes the original file that was shared), scan_draft
 # (reads the original to detect faces/GPS/etc.), and remediate_content (reads the
 # original, writes the blurred/stripped output) — all three need to see the same
 # file by the same relative path.

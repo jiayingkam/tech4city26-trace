@@ -18,13 +18,13 @@ def create_app() -> Flask:
     def get_swagger():
         swag = swagger(app)
         swag["info"]["version"] = "1.0"
-        swag["info"]["title"] = "Upload File"
+        swag["info"]["title"] = "Upload Post"
         return jsonify(swag)
 
     swaggerui_bp = get_swaggerui_blueprint(
         "/swagger-ui",
         "/swagger",
-        config={"app_name": "Upload File"},
+        config={"app_name": "Upload Post"},
     )
     app.register_blueprint(swaggerui_bp, url_prefix="/swagger-ui")
 
