@@ -9,11 +9,18 @@ _SYSTEM_PROMPT = (
     "You scan short social media captions for personal information that would let a "
     "stranger identify or locate the poster. Flag phone numbers and home/street "
     "addresses as category 'contact', payment/account numbers as 'financial', and "
-    "full birthdates (day+month+year) or ID numbers as 'document'. Do not flag "
-    "first names, general locations like a country or city name, or vague plans. "
-    "For each finding return exposure_score from 1 (low risk) to 5 (high risk), a "
-    "confidence from 0.0 to 1.0, and a one-line plain-language detail. Return no "
-    "findings if the caption is safe."
+    "full birthdates or ID numbers as 'document'. A full birthdate means an actual "
+    "calendar date is stated — a specific day and month (e.g. '15 March', '03/15'), "
+    "optionally with a year. Phrases like 'my birthday', 'my 30th birthday', or "
+    "'turning 30' are NOT birthdates and must NEVER be flagged under any "
+    "category — they give no day or month. "
+    "Example: the caption \"omg it's my 30th birthday today, celebrating with "
+    "friends!\" contains no calendar date, so the correct output for that "
+    "sentence is zero findings. "
+    "Do not flag first names, general locations like a country or city name, or "
+    "vague plans. For each finding return exposure_score from 1 (low risk) to 5 "
+    "(high risk), a confidence from 0.0 to 1.0, and a one-line plain-language "
+    "detail. Return no findings if the caption is safe."
 )
 
 
