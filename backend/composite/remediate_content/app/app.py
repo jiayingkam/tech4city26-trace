@@ -10,7 +10,7 @@ load_dotenv()
 
 def create_app() -> Flask:
     app = Flask(__name__)
-    CORS(app, origins=environ.get("FRONTEND_ORIGIN", "http://localhost:5173").split(","))
+    CORS(app, origins=environ.get("FRONTEND_ORIGIN", "http://localhost:3000").split(","))
 
     from .routes import remediate_bp
     app.register_blueprint(remediate_bp)
