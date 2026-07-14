@@ -13,7 +13,8 @@ async function submit() {
   error.value = ''
   loading.value = true
   try {
-    const res = await fetch(`http://localhost:5000/api/${mode.value}`, {
+    const usersUrl = import.meta.env.VITE_USERS_URL || 'http://localhost:5000'
+    const res = await fetch(`${usersUrl}/api/${mode.value}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email.value, password: password.value })

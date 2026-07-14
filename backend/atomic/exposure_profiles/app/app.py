@@ -11,7 +11,7 @@ load_dotenv()
 
 def create_app() -> Flask:
     app = Flask(__name__)
-    CORS(app)
+    CORS(app, origins=environ.get("FRONTEND_ORIGIN", "http://localhost:5173").split(","))
 
     db_server = environ["DB_SERVER"]
     db_name = environ["DB_NAME"]

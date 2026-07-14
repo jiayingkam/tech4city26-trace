@@ -1,8 +1,8 @@
-const UPLOAD_POST_URL = 'http://localhost:5014'
-const SCAN_DRAFT_URL = 'http://localhost:5012'
-const DETECTIONS_URL = 'http://localhost:5003'
-const REMEDIATE_CONTENT_URL = 'http://localhost:5011'
-const QUARANTINE_HIGH_RISK_URL = 'http://localhost:5010'
+const UPLOAD_POST_URL = import.meta.env.VITE_UPLOAD_POST_URL || 'http://localhost:5014'
+const SCAN_DRAFT_URL = import.meta.env.VITE_SCAN_DRAFT_URL || 'http://localhost:5012'
+const DETECTIONS_URL = import.meta.env.VITE_DETECTIONS_URL || 'http://localhost:5003'
+const REMEDIATE_CONTENT_URL = import.meta.env.VITE_REMEDIATE_CONTENT_URL || 'http://localhost:5011'
+const QUARANTINE_HIGH_RISK_URL = import.meta.env.VITE_QUARANTINE_HIGH_RISK_URL || 'http://localhost:5010'
 
 async function parseOrThrow(res) {
   const data = await res.json()

@@ -1,3 +1,4 @@
+from os import environ
 from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_swagger import swagger
@@ -9,7 +10,7 @@ load_dotenv()
 
 def create_app() -> Flask:
     app = Flask(__name__)
-    CORS(app)
+    CORS(app, origins=environ.get("FRONTEND_ORIGIN", "http://localhost:5173").split(","))
 
     from .routes import bp
     app.register_blueprint(bp)
