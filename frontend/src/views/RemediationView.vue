@@ -42,13 +42,14 @@ const copied = ref(false)
 
 // A live, client-side approximation of the blur — so toggling a fix shows
 // something immediately instead of only after the real server-side confirm.
-// A solid fill rather than a canvas blur filter: ctx.filter combined with
+// Approximated by drawing each flagged region at a fraction of its size and
+// scaling it back up, rather than via ctx.filter: ctx.filter combined with
 // ctx.clip() is unreliable in Safari (it silently no-ops there instead of
-// blurring), and the real server-side blur at the radius remediate_content
-// uses already renders small flagged regions as a near-solid block anyway —
-// so this reads the same in practice while working identically everywhere.
+// blurring), but drawImage-based scaling is basic canvas functionality
+// supported identically everywhere.
 const canvasEl = ref(null)
 let sourceImage = null
+const PREVIEW_BLUR_SCALE = 0.08
 
 function drawPreview() {
   if (!sourceImage || !canvasEl.value) return
@@ -58,11 +59,17 @@ function drawPreview() {
   const ctx = canvas.getContext('2d')
   ctx.drawImage(sourceImage, 0, 0)
 
-  ctx.fillStyle = 'rgb(20, 20, 20)'
   for (const edit of blurEdits.value) {
     if (edit.status === 'reverted' || !edit.region_affected) continue
     const { x, y, w, h } = edit.region_affected
-    ctx.fillRect(x, y, w, h)
+
+    const small = document.createElement('canvas')
+    small.width = Math.max(1, Math.round(w * PREVIEW_BLUR_SCALE))
+    small.height = Math.max(1, Math.round(h * PREVIEW_BLUR_SCALE))
+    small.getContext('2d').drawImage(sourceImage, x, y, w, h, 0, 0, small.width, small.height)
+
+    ctx.imageSmoothingEnabled = true
+    ctx.drawImage(small, 0, 0, small.width, small.height, x, y, w, h)
   }
 }
 
