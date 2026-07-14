@@ -58,6 +58,22 @@ def list_drafts_for_owner(owner_id):
     return jsonify([d.to_dict() for d in drafts]), 200
 
 
+@bp.route("/drafts/<draft_id>", methods=["PATCH"])
+def update_draft(draft_id):
+    draft = db.session.get(ContentDrafts, draft_id)
+    if draft is None:
+        return jsonify({"error": "draft not found"}), 404
+    data, error = _json_body()
+    if error:
+        return error
+    if "storage_path" in data:
+        draft.storage_path = data["storage_path"]
+    if "text_content" in data:
+        draft.text_content = data["text_content"]
+    db.session.commit()
+    return jsonify(draft.to_dict()), 200
+
+
 @bp.route("/drafts/<draft_id>", methods=["DELETE"])
 def delete_draft(draft_id):
     draft = db.session.get(ContentDrafts, draft_id)

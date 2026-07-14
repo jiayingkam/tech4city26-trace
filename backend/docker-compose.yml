@@ -146,6 +146,8 @@ services:
     build: ./composite/remediate_content
     ports:
       - "5011:5011"
+    volumes:
+      - draft_storage:/service/storage
     depends_on:
       content_drafts:
         condition: service_healthy
@@ -165,6 +167,8 @@ services:
     ports:
       - "5012:5012"
     env_file: ../.env
+    volumes:
+      - draft_storage:/service/storage
     depends_on:
       content_drafts:
         condition: service_healthy
@@ -174,8 +178,20 @@ services:
         condition: service_healthy
       remediate_content:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5012/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   update_exposure_profile:
     build: ./composite/update_exposure_profile
     ports:
       - "5013:5013"
+
+# Shared between scan_draft (reads the original to detect faces/GPS/etc.) and
+# remediate_content (reads the original, writes the blurred/stripped output) —
+# both need to see the same file by the same relative path.
+volumes:
+  draft_storage:
