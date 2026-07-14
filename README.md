@@ -22,6 +22,7 @@ A microservices backend built with Flask, organised into **atomic** (CRUD) and *
 | 5011 | Remediate Content         | composite |
 | 5012 | Scan Draft                | composite |
 | 5013 | Update Exposure Profile   | composite |
+| 5014 | Upload Post               | composite |
 
 ---
 
@@ -29,6 +30,7 @@ A microservices backend built with Flask, organised into **atomic** (CRUD) and *
 
 - [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/)
 - Python 3.12 (if running services locally without Docker)
+- [Node.js](https://nodejs.org/) `^20.19.0` or `>=22.12.0` (only needed to run the frontend — see below)
 - A `.env` file in the project root with the following variables:
 
 ```env
@@ -37,7 +39,10 @@ DB_NAME=<database-name>
 DB_USER=<db-username>
 DB_PASSWORD=<db-password>
 OPENAI_API_KEY=<your-openai-api-key>
+CLOUD_VISION_KEY=<your-google-cloud-vision-api-key>
 ```
+
+`CLOUD_VISION_KEY` is a plain Google Cloud API key (Cloud Vision API enabled on the project) — used by `scan_draft` for OCR text/location detection in photos.
 
 ### ODBC Driver 18 for SQL Server
 
@@ -94,6 +99,20 @@ flask run
 
 ---
 
+## Running the Frontend
+
+The Vue app is what actually drives Feature 1 (Pre-Post Scan) and Feature 2 (One-Tap Remediation & Quarantine) — the backend alone has no UI beyond Swagger. It needs the backend stack running (see above) at the same time, since it calls the composite services directly over HTTP.
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Opens at `http://localhost:3000`. The upload/scan/remediation flow calls `upload_post` (5014), `scan_draft` (5012), `detections` (5003), `remediate_content` (5011), and `quarantine_high_risk` (5010) directly from the browser — CORS is already enabled on each.
+
+---
+
 ## Running Test Scripts
 
 ### Unit tests (mocked database)
@@ -108,7 +127,9 @@ docker compose -f docker-compose.yml -f docker-compose-dev.yml up --build edits 
 
 Exercises the real running stack over HTTP — no mocks. Walks through the actual pipeline: a draft is created, `scan_draft` scans it for real (text via LLM, image via EXIF + LLM), and depending on what's found it's routed to `remediate_content` (propose → confirm → download → revert) or `quarantine_high_risk` (hold → cooldown). Covers Feature 1 (Pre-Post Scan) and Feature 2 (One-Tap Remediation & Quarantine).
 
-Needs a reachable Azure SQL DB and a working `OPENAI_API_KEY` in `.env` — this makes real, billed LLM calls, so it's not free and not instant.
+Needs a reachable Azure SQL DB and working `OPENAI_API_KEY`/`CLOUD_VISION_KEY` values in `.env` — this makes real, billed API calls, so it's not free and not instant.
+
+This script predates `upload_post` and creates drafts by writing directly into the shared storage volume rather than through the real HTTP upload path — it does not exercise `upload_post` itself. To test the actual upload flow the frontend uses, run the frontend against the live stack instead (see "Running the Frontend" above).
 
 ```bash
 cd backend
