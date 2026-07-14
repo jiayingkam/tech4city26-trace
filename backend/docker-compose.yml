@@ -146,6 +146,7 @@ services:
     build: ./composite/remediate_content
     ports:
       - "5011:5011"
+    env_file: ../.env
     volumes:
       - draft_storage:/service/storage
     depends_on:

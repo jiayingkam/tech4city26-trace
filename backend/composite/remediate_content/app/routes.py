@@ -3,6 +3,8 @@ import requests
 from flask import Blueprint, jsonify, send_file
 from PIL import Image, ImageFilter
 
+from .text_redaction import redact_caption
+
 remediate_bp = Blueprint("remediate_content", __name__)
 
 CONTENT_DRAFTS_SERVICE_URL = os.environ.get("CONTENT_DRAFTS_SERVICE_URL", "http://CONTENT_DRAFTS:5002")
@@ -16,14 +18,21 @@ SERVICE_ROOT = os.environ.get("SERVICE_ROOT", "/service")
 OUTPUT_DIR = os.path.join(SERVICE_ROOT, "storage", "remediated")
 
 
-def _get_original_path(draft_id):
-    """Looks up the draft's real stored file instead of assuming a .jpg extension."""
+def _get_draft(draft_id):
     resp = requests.get(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}")
     if resp.status_code == 404:
         return None, (jsonify({"error": "draft not found"}), 404)
     if resp.status_code != 200:
         return None, (jsonify({"error": "failed to fetch draft"}), 502)
-    storage_path = resp.json().get("storage_path")
+    return resp.json(), None
+
+
+def _get_original_path(draft_id):
+    """Looks up the draft's real stored file instead of assuming a .jpg extension."""
+    draft, error = _get_draft(draft_id)
+    if error:
+        return None, error
+    storage_path = draft.get("storage_path")
     if not storage_path:
         return None, (jsonify({"error": "draft has no stored file"}), 400)
     return os.path.join(SERVICE_ROOT, storage_path), None
@@ -84,13 +93,19 @@ def remediate_content(draft_id):
     text_detections = [d for d in detections if d.get("source_type") == "text"]
     image_detections = [d for d in detections if d.get("source_type") != "text"]
 
-    # only look up the stored file if there's actually image work to do —
-    # a text-only draft has no storage_path and shouldn't need one
-    original_path = None
-    if image_detections:
-        original_path, error = _get_original_path(draft_id)
+    # only fetch the draft if there's actually image or text work to do
+    draft = None
+    if image_detections or text_detections:
+        draft, error = _get_draft(draft_id)
         if error:
             return error
+
+    original_path = None
+    if image_detections:
+        storage_path = draft.get("storage_path")
+        if not storage_path:
+            return jsonify({"error": "draft has no stored file"}), 400
+        original_path = os.path.join(SERVICE_ROOT, storage_path)
 
     # 2. propose one pending edit per image/metadata detection — no pixel work yet
     #    the user can skip any of these before confirming
@@ -106,22 +121,32 @@ def remediate_content(draft_id):
             return jsonify({"error": "failed to create edit"}), 502
         proposed.append(edit_resp.json())
 
-    if not proposed and not text_detections:
+    # 3. for text leaks, generate a redacted caption the user can copy-paste
+    # straight over their original — no manual editing required
+    text_redaction = None
+    if text_detections:
+        original_caption = draft.get("text_content") or ""
+        suggested_caption = redact_caption(original_caption, text_detections)
+        text_redaction = {
+            "original_caption": original_caption,
+            "suggested_caption": suggested_caption,
+            "findings": [
+                {
+                    "detection_id": d["detection_id"],
+                    "category": d["category"],
+                    "detail": d.get("detail"),
+                } for d in text_detections
+            ],
+        }
+
+    if not proposed and not text_redaction:
         return jsonify({"error": "nothing to remediate"}), 400
 
     return jsonify({
         "draft_id": draft_id,
         "original": f"/{original_path}" if original_path else None,
         "proposed_edits": proposed,
-        # no automated fix exists for these yet — surfaced so the caller can
-        # prompt the user to edit their caption text directly
-        "needs_text_redaction": [
-            {
-                "detection_id": d["detection_id"],
-                "category": d["category"],
-                "detail": d.get("detail"),
-            } for d in text_detections
-        ],
+        "text_redaction": text_redaction,
     }), 200
 
 

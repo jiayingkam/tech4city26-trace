@@ -149,14 +149,14 @@ def run_text_scenario():
                 "a text-only draft should never get an image edit proposed "
                 f"(got {remediation.get('proposed_edits')})"
             )
-            needs_redaction = remediation.get("needs_text_redaction") or []
-            assert needs_redaction, (
+            text_redaction = remediation.get("text_redaction")
+            assert text_redaction, (
                 "expected the phone-number finding to come back under "
-                "needs_text_redaction, got none — this is the exact bug that "
+                "text_redaction, got none — this is the exact bug that "
                 "was fixed earlier regressing"
             )
-            ok(f"text finding correctly routed to needs_text_redaction, "
-               f"not to an image edit: {needs_redaction}")
+            ok(f"text finding correctly routed to text_redaction, "
+               f"not to an image edit: {text_redaction['findings']}")
         elif outcome == "quarantined":
             resp = requests.get(f"{QUARANTINE_HIGH_RISK_URL}/drafts/{draft_id}/quarantine", timeout=10)
             assert resp.status_code == 200, f"quarantine lookup failed: {resp.status_code}"
@@ -165,6 +165,62 @@ def run_text_scenario():
             ok(f"quarantine hold created: {items[0].get('reason')}")
         else:
             fail(scenario, f"unexpected outcome '{outcome}'")
+    except AssertionError as exc:
+        fail(scenario, str(exc))
+    except Exception as exc:
+        fail(scenario, f"unexpected error: {exc}")
+    finally:
+        if draft_id:
+            cleanup_draft(draft_id)
+
+
+def run_text_redaction_scenario():
+    # The full-pipeline text scenario depends on how the LLM happens to score
+    # the leak — if it's scored as high-risk, it goes to quarantine and never
+    # reaches remediate_content at all. That makes it an unreliable way to
+    # test redaction specifically. Here we seed a low-risk detection directly
+    # and call remediate_content on its own, so this checks one thing only:
+    # does the suggested caption actually have the phone number removed.
+    scenario = "text redaction produces a copy-pasteable caption"
+    print(f"\n=== Scenario: {scenario} ===")
+    draft_id = None
+    try:
+        phone_number = "91234567"
+        resp = requests.post(f"{CONTENT_DRAFTS_URL}/drafts", json={
+            "owner_id": f"smoke-{RUN_ID}",
+            "content_type": "text",
+            "source_app": "smoke_test",
+            "text_content": f"Call me at {phone_number} if you're around this weekend!",
+        }, timeout=10)
+        assert resp.status_code == 201, f"create draft failed: {resp.status_code} {resp.text}"
+        draft_id = resp.json()["draft_id"]
+        ok(f"created text draft {draft_id}")
+
+        resp = requests.post(f"{DETECTIONS_URL}/detections", json={
+            "draft_id": draft_id,
+            "category": "contact",
+            "source_type": "text",
+            "exposure_score": 2,
+            "detail": "Phone number in caption",
+        }, timeout=10)
+        assert resp.status_code == 201, f"seed detection failed: {resp.status_code} {resp.text}"
+        ok("seeded a low-risk text detection directly (bypassing scan scoring)")
+
+        resp = requests.post(f"{REMEDIATE_CONTENT_URL}/drafts/{draft_id}/remediate", timeout=30)
+        assert resp.status_code == 200, f"remediate failed: {resp.status_code} {resp.text}"
+        body = resp.json()
+        text_redaction = body.get("text_redaction")
+        assert text_redaction, f"expected a text_redaction object, got {body}"
+
+        suggested = text_redaction.get("suggested_caption") or ""
+        assert phone_number in text_redaction.get("original_caption", ""), (
+            "sanity check: original_caption should still contain the phone number"
+        )
+        assert phone_number not in suggested, (
+            f"suggested_caption should have the phone number removed, got: {suggested!r}"
+        )
+        assert suggested.strip(), "suggested_caption should not be empty"
+        ok(f"suggested caption is copy-pasteable and phone-number-free: {suggested!r}")
     except AssertionError as exc:
         fail(scenario, str(exc))
     except Exception as exc:
@@ -273,6 +329,7 @@ def main():
         wait_for_health(name, url)
 
     run_text_scenario()
+    run_text_redaction_scenario()
     run_image_scenario()
 
     print("\n=== Summary ===")
