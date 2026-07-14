@@ -5,6 +5,7 @@ from flask import Blueprint, jsonify
 from .scanners.exif_scanner import scan_metadata
 from .scanners.text_scanner import scan_text
 from .scanners.vision_scanner import scan_image
+from .scanners.ocr_scanner import scan_ocr
 
 bp = Blueprint("scan_draft", __name__)
 
@@ -42,6 +43,7 @@ def run_scan(draft_id):
             storage_path = os.path.join(SERVICE_ROOT, storage_path)
         if storage_path and os.path.exists(storage_path):
             findings += scan_metadata(storage_path)
+            findings += scan_ocr(storage_path)
             findings += scan_image(storage_path)
 
     # A caption can accompany either a text-only post or an image/video post —

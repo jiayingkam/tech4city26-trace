@@ -7,3 +7,5 @@ requests==2.32.3
 pillow==12.1.1
 langchain-openai
 pydantic
+pytesseract==0.3.13
+google-cloud-vision
