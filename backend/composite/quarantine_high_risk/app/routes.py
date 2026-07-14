@@ -2,7 +2,7 @@ import os
 import requests
 from flask import Blueprint, jsonify
 
-quarantine_bp = Blueprint("quarantine_high_risk", __name__)
+bp = Blueprint("quarantine_high_risk", __name__)
 
 DETECTIONS_SERVICE_URL = os.environ.get("DETECTIONS_SERVICE_URL", "http://DETECTIONS:5003")
 QUARANTINE_ITEMS_SERVICE_URL = os.environ.get("QUARANTINE_ITEMS_SERVICE_URL", "http://QUARANTINE_ITEMS:5006")
@@ -15,7 +15,7 @@ def _build_reason(detections):
     return "High-risk content detected: " + ", ".join(categories)
 
 
-@quarantine_bp.route("/drafts/<draft_id>/quarantine", methods=["POST"])
+@bp.route("/drafts/<draft_id>/quarantine", methods=["POST"])
 def quarantine_draft(draft_id):
     # 1. fetch detections, high risk only (exposure >= 4)
     resp = requests.get(f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections")
@@ -37,7 +37,7 @@ def quarantine_draft(draft_id):
     return jsonify(q_resp.json()), 201
 
 
-@quarantine_bp.route("/drafts/<draft_id>/quarantine", methods=["GET"])
+@bp.route("/drafts/<draft_id>/quarantine", methods=["GET"])
 def get_draft_quarantine(draft_id):
     resp = requests.get(f"{QUARANTINE_ITEMS_SERVICE_URL}/drafts/{draft_id}/quarantine")
     if resp.status_code != 200:
@@ -56,7 +56,7 @@ def get_draft_quarantine(draft_id):
     return jsonify(result), 200
 
 
-@quarantine_bp.route("/quarantine/<quarantine_id>/release", methods=["POST"])
+@bp.route("/quarantine/<quarantine_id>/release", methods=["POST"])
 def release_quarantine(quarantine_id):
     # check cooldown before allowing release
     cooldown_resp = requests.get(
@@ -84,7 +84,7 @@ def release_quarantine(quarantine_id):
     return jsonify(patch_resp.json()), 200
 
 
-@quarantine_bp.route("/quarantine/<quarantine_id>/edit", methods=["POST"])
+@bp.route("/quarantine/<quarantine_id>/edit", methods=["POST"])
 def edit_quarantine(quarantine_id):
     # fetch the quarantine item to get the draft_id
     q_resp = requests.get(f"{QUARANTINE_ITEMS_SERVICE_URL}/quarantine/{quarantine_id}")
@@ -116,7 +116,7 @@ def edit_quarantine(quarantine_id):
     }), 200
 
 
-@quarantine_bp.route("/quarantine/<quarantine_id>/delete", methods=["POST"])
+@bp.route("/quarantine/<quarantine_id>/delete", methods=["POST"])
 def delete_quarantine(quarantine_id):
     q_resp = requests.get(f"{QUARANTINE_ITEMS_SERVICE_URL}/quarantine/{quarantine_id}")
     if q_resp.status_code == 404:
@@ -137,6 +137,6 @@ def delete_quarantine(quarantine_id):
 # In professional setups, a Load Balancer and/or caller pings this /health URL every few seconds.
 # If your code gets stuck in an infinite loop during a request,
 # it will stop responding to /health.
-@quarantine_bp.get("/health")
+@bp.get("/health")
 def health():
     return jsonify({"status": "ok"}), 200
