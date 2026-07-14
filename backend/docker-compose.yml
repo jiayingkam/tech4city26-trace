@@ -191,8 +191,25 @@ services:
     ports:
       - "5013:5013"
 
-# Shared between scan_draft (reads the original to detect faces/GPS/etc.) and
-# remediate_content (reads the original, writes the blurred/stripped output) —
-# both need to see the same file by the same relative path.
+  upload_file:
+    build: ./composite/upload_file
+    ports:
+      - "5014:5014"
+    volumes:
+      - draft_storage:/service/storage
+    depends_on:
+      content_drafts:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5014/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+# Shared between upload_file (writes the original file that was shared), scan_draft
+# (reads the original to detect faces/GPS/etc.), and remediate_content (reads the
+# original, writes the blurred/stripped output) — all three need to see the same
+# file by the same relative path.
 volumes:
   draft_storage:

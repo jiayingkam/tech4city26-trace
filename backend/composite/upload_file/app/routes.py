@@ -1,0 +1,75 @@
+import os
+import requests
+from flask import Blueprint, request, jsonify
+from werkzeug.utils import secure_filename
+
+bp = Blueprint("upload_file", __name__)
+
+CONTENT_DRAFTS_SERVICE_URL = os.environ.get("CONTENT_DRAFTS_SERVICE_URL", "http://CONTENT_DRAFTS:5002")
+
+# Anchored to an absolute path rather than left relative — see scan_draft/remediate_content
+# for why relative paths aren't safe to resolve against the process's cwd here.
+SERVICE_ROOT = os.environ.get("SERVICE_ROOT", "/service")
+
+VALID_CONTENT_TYPES = ("text", "image", "video")
+DEFAULT_EXTENSION = ".jpg"
+
+
+@bp.route("/drafts", methods=["POST"])
+def upload_draft():
+    """Creates a content_drafts record and, if a file was sent, writes it to the
+    shared draft_storage volume and attaches its storage_path to the draft.
+    One call for the frontend to make on 'Share' — mirrors scan_draft/process,
+    which also folds several atomic calls into a single composite endpoint."""
+    owner_id = request.form.get("owner_id")
+    content_type = request.form.get("content_type")
+    source_app = request.form.get("source_app")
+    text_content = request.form.get("text_content")
+    file = request.files.get("file")
+
+    if not owner_id or content_type not in VALID_CONTENT_TYPES:
+        return jsonify({"error": "owner_id and a valid content_type are required"}), 400
+    if content_type in ("image", "video") and file is None:
+        return jsonify({"error": "file is required for content_type image/video"}), 400
+
+    create_resp = requests.post(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts", json={
+        "owner_id": owner_id,
+        "content_type": content_type,
+        "source_app": source_app,
+        "text_content": text_content,
+    })
+    if create_resp.status_code != 201:
+        return jsonify({"error": "failed to create draft", "detail": create_resp.json()}), 502
+    draft = create_resp.json()
+    draft_id = draft["draft_id"]
+
+    if file is not None:
+        ext = os.path.splitext(secure_filename(file.filename))[1].lower() or DEFAULT_EXTENSION
+        relative_path = f"storage/originals/{draft_id}{ext}"
+        absolute_path = os.path.join(SERVICE_ROOT, relative_path)
+        os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
+
+        try:
+            file.save(absolute_path)
+        except OSError as e:
+            requests.delete(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}")
+            return jsonify({"error": "failed to store file", "detail": str(e)}), 502
+
+        patch_resp = requests.patch(
+            f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}",
+            json={"storage_path": relative_path},
+        )
+        if patch_resp.status_code != 200:
+            requests.delete(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}")
+            return jsonify({"error": "failed to attach storage_path", "detail": patch_resp.json()}), 502
+        draft = patch_resp.json()
+
+    return jsonify(draft), 201
+
+
+# In professional setups, a Load Balancer and/or caller pings this /health URL every few seconds.
+# If your code gets stuck in an infinite loop during a request,
+# it will stop responding to /health.
+@bp.get("/health")
+def health():
+    return jsonify({"status": "ok"}), 200
