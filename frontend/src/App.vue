@@ -1,12 +1,47 @@
 <script setup>
 import { ref } from 'vue'
 import PhoneFrame from './components/PhoneFrame.vue'
-import LoginView from './views/LoginView.vue' 
+import ComposeView from './views/ComposeView.vue'
+import { uploadPost, processDraft } from './api'
 
-const step = ref(1)
+// No auth yet (users service is still a stub) — every post shares this owner_id.
+const DEMO_OWNER_ID = 'demo-user'
 
-function next() {
-  step.value++
+const step = ref(1) // 1 compose, 2 scanning, 3 results, 4 error
+const caption = ref('')
+const draftId = ref(null)
+const scanOutcome = ref(null)
+const errorMessage = ref('')
+
+async function handleShare(payload) {
+  caption.value = payload.caption
+  errorMessage.value = ''
+  step.value = 2
+
+  try {
+    const draft = await uploadPost({
+      ownerId: DEMO_OWNER_ID,
+      contentType: 'image',
+      sourceApp: 'trace-web',
+      caption: payload.caption,
+      photoFile: payload.photoFile,
+    })
+    draftId.value = draft.draft_id
+
+    scanOutcome.value = await processDraft(draft.draft_id)
+    step.value = 3
+  } catch (err) {
+    errorMessage.value = err.message || 'Something went wrong. Please try again.'
+    step.value = 4
+  }
+}
+
+function restart() {
+  step.value = 1
+  caption.value = ''
+  draftId.value = null
+  scanOutcome.value = null
+  errorMessage.value = ''
 }
 </script>
 
@@ -14,64 +49,32 @@ function next() {
   <div class="d-flex justify-content-center align-items-center min-vh-100 bg-light">
     <PhoneFrame>
 
-      <!-- Step 1: Login -->
-      <LoginView v-if="step === 1" @success="next" />
+      <!-- Step 1: Compose -->
+      <ComposeView v-if="step === 1" @share="handleShare" />
 
-      <!-- Step 2: Compose (your existing screen — just renumbered) -->
-      <div v-else-if="step === 2" class="d-flex flex-column h-100">
-        <div class="border-bottom p-3 text-center fw-bold">New post</div>
-
-        <div class="p-3 flex-grow-1">
-          <div class="mock-photo mb-3">
-            <div class="mock-building"></div>
-            <div class="mock-sign">BLK 123</div>
-          </div>
-          <p class="mb-1 fw-semibold">mia_xx</p>
-          <p class="text-muted mb-0">Vacation mode on 🌴 away all week, see you soon!</p>
+      <!-- Step 2: Scanning -->
+      <div v-else-if="step === 2" class="d-flex flex-column h-100 align-items-center justify-content-center text-center p-4">
+        <div class="spinner-border text-primary mb-3" role="status">
+          <span class="visually-hidden">Scanning…</span>
         </div>
-
-        <div class="p-3 border-top">
-          <button class="btn btn-primary w-100" @click="next">Share</button>
-        </div>
+        <p class="fw-semibold mb-1">Scanning your post</p>
+        <p class="text-muted small">Checking for faces, locations, and hidden data…</p>
       </div>
 
-      <!-- Step 2: placeholder for the scan screen (next) -->
-      <div v-else-if="step === 2" class="p-4 text-center">
-        <p>Scan screen goes here next.</p>
-        <button class="btn btn-outline-secondary" @click="step = 1">Back to start</button>
+      <!-- Step 3: Results (placeholder — real findings UI is the next step) -->
+      <div v-else-if="step === 3" class="p-4 text-center">
+        <p class="fw-semibold">Scan complete: {{ scanOutcome?.outcome }}</p>
+        <p class="text-muted small">draft_id: {{ draftId }}</p>
+        <p class="text-muted small">Results screen goes here next.</p>
+        <button class="btn btn-outline-secondary" @click="restart">Back to start</button>
+      </div>
+
+      <!-- Step 4: Error -->
+      <div v-else-if="step === 4" class="p-4 text-center">
+        <p class="text-danger fw-semibold">{{ errorMessage }}</p>
+        <button class="btn btn-outline-secondary" @click="restart">Try again</button>
       </div>
 
     </PhoneFrame>
   </div>
 </template>
-
-<style scoped>
-.mock-photo {
-  position: relative;
-  height: 260px;
-  border-radius: 12px;
-  background: linear-gradient(160deg, #ffd194 0%, #a1c4fd 100%);
-  overflow: hidden;
-}
-.mock-building {
-  position: absolute;
-  bottom: 0;
-  left: 20%;
-  width: 60%;
-  height: 45%;
-  background: #6b7280;
-  border-radius: 6px 6px 0 0;
-}
-.mock-sign {
-  position: absolute;
-  bottom: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #fff;
-  color: #111;
-  font-weight: 700;
-  font-size: 0.8rem;
-  padding: 2px 10px;
-  border-radius: 4px;
-}
-</style>

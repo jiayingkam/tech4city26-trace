@@ -22,6 +22,13 @@ def create_app() -> Flask:
         f"mssql+pyodbc://{db_user}:{db_password}@{db_server}/{db_name}"
         f"?driver={driver}&Encrypt=yes&TrustServerCertificate=no&Connection+Timeout=30"
     )
+    # Azure SQL silently drops idle connections; without pre_ping, the next
+    # query on a stale pooled connection dies with a raw TCP/communication
+    # link error instead of transparently reconnecting.
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "pool_pre_ping": True,
+        "pool_recycle": 280,
+    }
     db.init_app(app)
 
     from .routes import detections_bp

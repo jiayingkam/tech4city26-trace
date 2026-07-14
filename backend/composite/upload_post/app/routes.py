@@ -15,6 +15,16 @@ VALID_CONTENT_TYPES = ("text", "image", "video")
 DEFAULT_EXTENSION = ".jpg"
 
 
+def _safe_detail(resp):
+    """Downstream errors aren't always JSON (a raw 500 from an unhandled
+    exception is an HTML page) — .json() would raise and mask the real
+    failure behind a second, unhandled crash in this service."""
+    try:
+        return resp.json()
+    except ValueError:
+        return resp.text[:500]
+
+
 @bp.route("/drafts", methods=["POST"])
 def upload_draft():
     """Creates a content_drafts record and, if a file was sent, writes it to the
@@ -39,7 +49,7 @@ def upload_draft():
         "text_content": text_content,
     })
     if create_resp.status_code != 201:
-        return jsonify({"error": "failed to create draft", "detail": create_resp.json()}), 502
+        return jsonify({"error": "failed to create draft", "detail": _safe_detail(create_resp)}), 502
     draft = create_resp.json()
     draft_id = draft["draft_id"]
 
@@ -61,7 +71,7 @@ def upload_draft():
         )
         if patch_resp.status_code != 200:
             requests.delete(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}")
-            return jsonify({"error": "failed to attach storage_path", "detail": patch_resp.json()}), 502
+            return jsonify({"error": "failed to attach storage_path", "detail": _safe_detail(patch_resp)}), 502
         draft = patch_resp.json()
 
     return jsonify(draft), 201
@@ -87,7 +97,7 @@ def insert_caption(draft_id):
     if patch_resp.status_code == 404:
         return jsonify({"error": "draft not found"}), 404
     if patch_resp.status_code != 200:
-        return jsonify({"error": "failed to insert caption", "detail": patch_resp.json()}), 502
+        return jsonify({"error": "failed to insert caption", "detail": _safe_detail(patch_resp)}), 502
     return jsonify(patch_resp.json()), 200
 
 
