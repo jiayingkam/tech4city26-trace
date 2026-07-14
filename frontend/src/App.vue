@@ -19,8 +19,7 @@ const scanOutcome = ref(null)
 // "edit" handoff, which also produces a remediation payload to act on.
 const activeRemediation = ref(null)
 const errorMessage = ref('')
-// Set while a request is being retried after a network-level failure — almost
-// always a Render free-tier service waking up from an idle spin-down.
+// Set while a request is being retried after a network-level failure.
 const wakingUp = ref(false)
 
 function onRetry() {
@@ -52,7 +51,14 @@ async function handleShare(payload) {
     }
     step.value = 3
   } catch (err) {
-    errorMessage.value = err.message || 'Something went wrong. Please try again.'
+    // Network-level failures (fetch throwing, or our own abort-timeout) surface
+    // raw browser wording like "Load failed" — not something to show as-is.
+    // Only messages our own API layer attached (via parseOrThrow) are meant
+    // for display.
+    const isNetworkError = err instanceof TypeError || err.name === 'AbortError'
+    errorMessage.value = isNetworkError
+      ? "We're having trouble connecting right now. Please try again in a moment."
+      : err.message || 'Something went wrong. Please try again.'
     step.value = 5
   } finally {
     wakingUp.value = false
@@ -89,8 +95,8 @@ function restart() {
           <span class="visually-hidden">Scanning…</span>
         </div>
         <template v-if="wakingUp">
-          <p class="fw-semibold mb-1">Waking up the server</p>
-          <p class="text-muted small">The backend went idle — this can take up to a minute on the first request.</p>
+          <p class="fw-semibold mb-1">Scanning your post</p>
+          <p class="text-muted small">This is taking a little longer than usual — thanks for your patience.</p>
         </template>
         <template v-else>
           <p class="fw-semibold mb-1">Scanning your post</p>

@@ -13,16 +13,22 @@ async function parseOrThrow(res) {
 // Render's free tier spins services down after 15 min idle. The first request
 // back can fail at the network level (connection reset) while the container
 // is still booting, rather than just being slow — so we retry on fetch()
-// throwing, not on ordinary HTTP error responses, with backoff long enough to
-// cover a typical ~30-50s cold start.
-async function fetchWithRetry(url, options, { retries = 4, baseDelayMs = 3000, onRetry } = {}) {
+// throwing, not on ordinary HTTP error responses. Each attempt gets its own
+// bounded timeout (rather than trusting the browser's own, much longer and
+// less predictable default) so a stalled cold-starting request doesn't just
+// hang — we abort it and retry sooner instead.
+async function fetchWithRetry(url, options, { retries = 6, attemptTimeoutMs = 12000, delayMs = 4000, onRetry } = {}) {
   for (let attempt = 0; ; attempt++) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), attemptTimeoutMs)
     try {
-      return await fetch(url, options)
+      return await fetch(url, { ...options, signal: controller.signal })
     } catch (err) {
       if (attempt >= retries) throw err
       onRetry?.(attempt + 1, retries)
-      await new Promise((resolve) => setTimeout(resolve, baseDelayMs * 2 ** attempt))
+      await new Promise((resolve) => setTimeout(resolve, delayMs))
+    } finally {
+      clearTimeout(timer)
     }
   }
 }
