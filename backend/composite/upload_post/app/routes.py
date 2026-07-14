@@ -1,6 +1,6 @@
 import os
 import requests
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 
 bp = Blueprint("upload_post", __name__)
@@ -99,6 +99,28 @@ def insert_caption(draft_id):
     if patch_resp.status_code != 200:
         return jsonify({"error": "failed to insert caption", "detail": _safe_detail(patch_resp)}), 502
     return jsonify(patch_resp.json()), 200
+
+
+@bp.route("/drafts/<draft_id>/original", methods=["GET"])
+def get_original(draft_id):
+    """Serves the original file's bytes over HTTP. This service is the only
+    one that ever writes the file to local disk — scan_draft and
+    remediate_content run as separate services with their own separate
+    filesystems (no shared draft_storage volume outside Docker Compose), so
+    this is how they now have to reach it instead of reading the path directly."""
+    draft_resp = requests.get(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}")
+    if draft_resp.status_code == 404:
+        return jsonify({"error": "draft not found"}), 404
+    if draft_resp.status_code != 200:
+        return jsonify({"error": "failed to fetch draft"}), 502
+    storage_path = draft_resp.json().get("storage_path")
+    if not storage_path:
+        return jsonify({"error": "draft has no stored file"}), 400
+
+    absolute_path = os.path.join(SERVICE_ROOT, storage_path)
+    if not os.path.exists(absolute_path):
+        return jsonify({"error": "file not found"}), 404
+    return send_file(absolute_path)
 
 
 # In professional setups, a Load Balancer and/or caller pings this /health URL every few seconds.

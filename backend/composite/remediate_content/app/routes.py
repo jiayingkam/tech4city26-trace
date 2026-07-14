@@ -1,4 +1,5 @@
 import os
+import tempfile
 import requests
 from flask import Blueprint, jsonify, send_file
 from PIL import Image, ImageFilter
@@ -10,6 +11,7 @@ remediate_bp = Blueprint("remediate_content", __name__)
 CONTENT_DRAFTS_SERVICE_URL = os.environ.get("CONTENT_DRAFTS_SERVICE_URL", "http://CONTENT_DRAFTS:5002")
 DETECTIONS_SERVICE_URL = os.environ.get("DETECTIONS_SERVICE_URL", "http://DETECTIONS:5003")
 EDITS_SERVICE_URL = os.environ.get("EDITS_SERVICE_URL", "http://EDITS:5004")
+UPLOAD_POST_SERVICE_URL = os.environ.get("UPLOAD_POST_SERVICE_URL", "http://UPLOAD_POST:5014")
 
 # Anchored to an absolute path rather than left relative — relative paths
 # resolve against the process's current working directory, which turned out
@@ -28,14 +30,30 @@ def _get_draft(draft_id):
 
 
 def _get_original_path(draft_id):
-    """Looks up the draft's real stored file instead of assuming a .jpg extension."""
+    """Downloads the draft's original file from upload_post into a local temp
+    file and returns its path. upload_post is the only service that ever
+    writes this file to local disk — as separate Render services (no shared
+    draft_storage volume outside Docker Compose), the bytes have to cross the
+    network instead of being read off a shared path. Re-fetched fresh on
+    every call rather than cached, since this runs infrequently (propose /
+    confirm / revert / restore / download) and staying stateless avoids any
+    risk of a stale or missing temp file between requests."""
     draft, error = _get_draft(draft_id)
     if error:
         return None, error
     storage_path = draft.get("storage_path")
     if not storage_path:
         return None, (jsonify({"error": "draft has no stored file"}), 400)
-    return os.path.join(SERVICE_ROOT, storage_path), None
+
+    resp = requests.get(f"{UPLOAD_POST_SERVICE_URL}/drafts/{draft_id}/original")
+    if resp.status_code != 200:
+        return None, (jsonify({"error": "original file not found"}), 404)
+
+    filename = os.path.basename(storage_path)
+    tmp_path = os.path.join(tempfile.gettempdir(), f"{draft_id}_{filename}")
+    with open(tmp_path, "wb") as f:
+        f.write(resp.content)
+    return tmp_path, None
 
 
 def apply_remediation(original_path, edits):
