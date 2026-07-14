@@ -42,6 +42,11 @@ const copied = ref(false)
 
 // A live, client-side approximation of the blur — so toggling a fix shows
 // something immediately instead of only after the real server-side confirm.
+// A solid fill rather than a canvas blur filter: ctx.filter combined with
+// ctx.clip() is unreliable in Safari (it silently no-ops there instead of
+// blurring), and the real server-side blur at the radius remediate_content
+// uses already renders small flagged regions as a near-solid block anyway —
+// so this reads the same in practice while working identically everywhere.
 const canvasEl = ref(null)
 let sourceImage = null
 
@@ -51,19 +56,13 @@ function drawPreview() {
   canvas.width = sourceImage.naturalWidth
   canvas.height = sourceImage.naturalHeight
   const ctx = canvas.getContext('2d')
-  ctx.filter = 'none'
   ctx.drawImage(sourceImage, 0, 0)
 
+  ctx.fillStyle = 'rgba(20, 20, 20, 0.85)'
   for (const edit of blurEdits.value) {
     if (edit.status === 'reverted' || !edit.region_affected) continue
     const { x, y, w, h } = edit.region_affected
-    ctx.save()
-    ctx.beginPath()
-    ctx.rect(x, y, w, h)
-    ctx.clip()
-    ctx.filter = 'blur(12px)'
-    ctx.drawImage(sourceImage, 0, 0)
-    ctx.restore()
+    ctx.fillRect(x, y, w, h)
   }
 }
 
