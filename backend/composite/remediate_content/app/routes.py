@@ -9,7 +9,11 @@ CONTENT_DRAFTS_SERVICE_URL = os.environ.get("CONTENT_DRAFTS_SERVICE_URL", "http:
 DETECTIONS_SERVICE_URL = os.environ.get("DETECTIONS_SERVICE_URL", "http://DETECTIONS:5003")
 EDITS_SERVICE_URL = os.environ.get("EDITS_SERVICE_URL", "http://EDITS:5004")
 
-OUTPUT_DIR = "storage/remediated"
+# Anchored to an absolute path rather than left relative — relative paths
+# resolve against the process's current working directory, which turned out
+# not to be reliably consistent between requests under the dev server.
+SERVICE_ROOT = os.environ.get("SERVICE_ROOT", "/service")
+OUTPUT_DIR = os.path.join(SERVICE_ROOT, "storage", "remediated")
 
 
 def _get_original_path(draft_id):
@@ -22,7 +26,7 @@ def _get_original_path(draft_id):
     storage_path = resp.json().get("storage_path")
     if not storage_path:
         return None, (jsonify({"error": "draft has no stored file"}), 400)
-    return storage_path, None
+    return os.path.join(SERVICE_ROOT, storage_path), None
 
 
 def apply_remediation(original_path, edits):
@@ -38,6 +42,7 @@ def apply_remediation(original_path, edits):
             blurred = img.crop(box).filter(ImageFilter.GaussianBlur(radius=15))
             img.paste(blurred, box)
 
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     out_path = os.path.join(OUTPUT_DIR, os.path.basename(original_path))
     img.save(out_path)  # not passing exif= strips the GPS/EXIF on save
     return out_path

@@ -13,6 +13,11 @@ DETECTIONS_SERVICE_URL = os.environ.get("DETECTIONS_SERVICE_URL", "http://DETECT
 QUARANTINE_HIGH_RISK_SERVICE_URL = os.environ.get("QUARANTINE_HIGH_RISK_SERVICE_URL", "http://QUARANTINE_HIGH_RISK:5010")
 REMEDIATE_CONTENT_SERVICE_URL = os.environ.get("REMEDIATE_CONTENT_SERVICE_URL", "http://REMEDIATE_CONTENT:5011")
 
+# Anchored to an absolute path rather than left relative — relative paths
+# resolve against the process's current working directory, which turned out
+# not to be reliably consistent between requests under the dev server.
+SERVICE_ROOT = os.environ.get("SERVICE_ROOT", "/service")
+
 
 def run_scan(draft_id):
     """Reads the draft from content_drafts, runs the classifier for its content
@@ -31,6 +36,8 @@ def run_scan(draft_id):
     elif content_type == "image":
         findings = []
         storage_path = draft.get("storage_path")
+        if storage_path:
+            storage_path = os.path.join(SERVICE_ROOT, storage_path)
         if storage_path and os.path.exists(storage_path):
             findings += scan_metadata(storage_path)
             findings += scan_image(storage_path)

@@ -143,11 +143,13 @@ def run_text_scenario():
            f"{[d['category'] for d in text_hits]}")
 
         if outcome == "remediated":
-            assert body.get("proposed_edits") == [], (
+            # scan_draft nests remediate_content's whole response under "remediation"
+            remediation = body.get("remediation") or {}
+            assert remediation.get("proposed_edits") == [], (
                 "a text-only draft should never get an image edit proposed "
-                f"(got {body.get('proposed_edits')})"
+                f"(got {remediation.get('proposed_edits')})"
             )
-            needs_redaction = body.get("needs_text_redaction") or []
+            needs_redaction = remediation.get("needs_text_redaction") or []
             assert needs_redaction, (
                 "expected the phone-number finding to come back under "
                 "needs_text_redaction, got none — this is the exact bug that "
@@ -223,7 +225,9 @@ def run_image_scenario():
                  "test image (LLM variance); skipping the remediate/download checks")
             return
 
-        edits = body.get("proposed_edits") or []
+        # scan_draft nests remediate_content's whole response under "remediation"
+        remediation = body.get("remediation") or {}
+        edits = remediation.get("proposed_edits") or []
         strip_edits = [e for e in edits if e.get("edit_type") == "metadata_strip"]
         assert strip_edits, f"expected a metadata_strip edit, got {edits}"
         edit_id = strip_edits[0]["edit_id"]
