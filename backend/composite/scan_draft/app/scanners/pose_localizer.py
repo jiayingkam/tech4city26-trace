@@ -3,6 +3,21 @@ import numpy as np
 
 _mp_pose = mp.solutions.pose
 
+_pose_model = None
+
+
+def _get_pose_model():
+    """Lazily built and cached — constructing mp.solutions.pose.Pose loads a
+    full pose-estimation model into memory, so building a fresh one per face
+    (as this used to do, up to MAX_FACES_CHECKED times per image) is what was
+    driving the OOM crashes. One instance is reused for the life of the
+    process, same pattern as cloud_vision_client.get_vision_client()."""
+    global _pose_model
+    if _pose_model is None:
+        _pose_model = _mp_pose.Pose(static_image_mode=True, model_complexity=2)
+    return _pose_model
+
+
 # Below this, a landmark is likely occluded/guessed rather than actually
 # seen — using it to compute geometry would just relocate the guessing
 # problem instead of fixing it.
@@ -28,8 +43,7 @@ def compute_chest_band(crop):
     geometry does far better than asking a vision model to eyeball a
     coordinate directly."""
     arr = np.array(crop.convert("RGB"))
-    with _mp_pose.Pose(static_image_mode=True, model_complexity=2) as pose:
-        result = pose.process(arr)
+    result = _get_pose_model().process(arr)
 
     if not result.pose_landmarks:
         return None
