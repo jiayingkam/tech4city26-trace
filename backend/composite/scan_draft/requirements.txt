@@ -8,4 +8,4 @@ pillow==12.1.1
 langchain-openai
 pydantic
 google-cloud-vision
-mediapipe
+mediapipe==0.10.18
