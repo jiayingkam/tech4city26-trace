@@ -1,10 +1,11 @@
 from os import environ
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_swagger import swagger
 from flask_swagger_ui import get_swaggerui_blueprint
 from dotenv import load_dotenv
 from .db import db
+from .db_retry import wait_for_db
 
 load_dotenv()
 
@@ -35,7 +36,17 @@ def create_app() -> Flask:
     app.register_blueprint(quarantine_bp)
 
     with app.app_context():
+        wait_for_db(db.engine)
         db.create_all()
+
+    @app.before_request
+    def _wait_for_db_before_request():
+        # Let health/swagger checks respond immediately even if the DB is
+        # still resuming, so Render doesn't treat a resuming DB as a dead
+        # service and restart it.
+        if request.path == "/health" or request.path.startswith("/swagger"):
+            return
+        wait_for_db(db.engine)
 
     @app.route("/swagger")
     def get_swagger():
