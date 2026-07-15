@@ -94,10 +94,11 @@ export async function updateEditRegion(editId, region) {
 // scanner-found one, just with model_version "manual") and then an Edit
 // pointing at the same region, mirroring exactly what remediate_content's
 // propose step already does per-detection — just triggered from the
-// frontend instead of a scanner. Returns the created edit, since that's
-// what actually drives the blur at confirm time.
+// frontend instead of a scanner. Returns the created edit plus the
+// detection's id (the Edit model itself has no link back to it) so the
+// caller can rename the area later via renameDetection.
 export async function addManualEdit(draftId, region) {
-  await parseOrThrow(
+  const detection = await parseOrThrow(
     await fetchWithRetry(`${DETECTIONS_URL}/detections`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -116,6 +117,18 @@ export async function addManualEdit(draftId, region) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ draft_id: draftId, edit_type: 'blur', region_affected: region }),
+  })
+  const edit = await parseOrThrow(res)
+  return { ...edit, detection_id: detection.detection_id }
+}
+
+// Renames a self-marked area by updating the underlying Detection's detail
+// (the one-line description RemediationView shows next to its checkbox).
+export async function renameDetection(detectionId, detail) {
+  const res = await fetchWithRetry(`${DETECTIONS_URL}/detections/${detectionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ detail }),
   })
   return parseOrThrow(res)
 }

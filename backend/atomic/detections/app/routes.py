@@ -68,6 +68,29 @@ def get_detection(detection_id):
     return jsonify(detection.to_dict()), 200
 
 
+@detections_bp.route("/detections/<detection_id>", methods=["PATCH"])
+def update_detection(detection_id):
+    detection = db.session.get(Detection, detection_id)
+    if detection is None:
+        return jsonify({"error": "detection not found"}), 404
+    data, error = _json_body()
+    if error:
+        return error
+
+    if "detail" not in data:
+        return jsonify({"error": "must provide detail"}), 400
+
+    detail = data["detail"]
+    if not isinstance(detail, str) or not detail.strip():
+        return jsonify({"error": "detail must be a non-empty string"}), 400
+    if len(detail) > 255:
+        return jsonify({"error": "detail must be 255 characters or fewer"}), 400
+
+    detection.detail = detail.strip()
+    db.session.commit()
+    return jsonify(detection.to_dict()), 200
+
+
 @detections_bp.route("/detections/<detection_id>", methods=["DELETE"])
 def delete_detection(detection_id):
     detection = db.session.get(Detection, detection_id)

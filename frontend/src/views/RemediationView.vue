@@ -1,6 +1,14 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { confirmRemediation, revertEdit, restoreEdit, downloadUrl, updateEditRegion, addManualEdit } from '../api'
+import { ref, reactive, computed, onMounted } from 'vue'
+import {
+  confirmRemediation,
+  revertEdit,
+  restoreEdit,
+  downloadUrl,
+  updateEditRegion,
+  addManualEdit,
+  renameDetection,
+} from '../api'
 
 const props = defineProps({
   draftId: { type: String, required: true },
@@ -20,7 +28,9 @@ const redaction = props.remediation.text_redaction
 // it actually is beyond a bare number. Matched once, up front, by exact
 // region — a plain object rather than a computed since it only needs the
 // edits' original (pre-drag) regions, taken as they arrived as props.
-const detailByEditId = {}
+// reactive (not a plain object) because renaming a self-marked area below
+// overwrites an entry after mount and editLabel needs to pick that up.
+const detailByEditId = reactive({})
 for (const edit of proposedEdits.value) {
   const region = edit.region_affected
   if (!region) continue
@@ -269,6 +279,36 @@ async function toggleEdit(edit) {
   }
 }
 
+// Renaming only applies to self-marked areas (edits carrying a detection_id
+// — see addManualEdit) since scanner-found ones already have a detail from
+// the scan itself.
+const renamingEditId = ref(null)
+const renameDraft = ref('')
+
+function startRename(edit) {
+  renamingEditId.value = edit.edit_id
+  renameDraft.value = detailByEditId[edit.edit_id] || ''
+}
+
+function cancelRename() {
+  renamingEditId.value = null
+}
+
+async function saveRename(edit) {
+  // Enter triggers this then blur fires it again; the guard makes the
+  // second call a no-op instead of a duplicate request.
+  if (renamingEditId.value !== edit.edit_id) return
+  renamingEditId.value = null
+  const label = renameDraft.value.trim()
+  if (!label || label === detailByEditId[edit.edit_id]) return
+  try {
+    await renameDetection(edit.detection_id, label)
+    detailByEditId[edit.edit_id] = label
+  } catch (err) {
+    error.value = err.message || 'Could not rename that area.'
+  }
+}
+
 async function confirm() {
   confirming.value = true
   error.value = ''
@@ -339,8 +379,29 @@ async function copySuggested() {
             :disabled="confirmed"
             @change="toggleEdit(edit)"
           />
-          <label class="form-check-label small" :for="edit.edit_id">
+          <input
+            v-if="renamingEditId === edit.edit_id"
+            v-model="renameDraft"
+            type="text"
+            class="form-control form-control-sm d-inline-block w-auto align-middle"
+            style="max-width: 220px"
+            maxlength="255"
+            autofocus
+            placeholder="Name this area"
+            @keyup.enter="saveRename(edit)"
+            @keyup.esc="cancelRename"
+            @blur="saveRename(edit)"
+          />
+          <label v-else class="form-check-label small" :for="edit.edit_id">
             {{ editLabel(edit) }}
+            <button
+              v-if="edit.detection_id && !confirmed"
+              type="button"
+              class="btn btn-link btn-sm p-0 ms-1 align-baseline"
+              @click.stop.prevent="startRename(edit)"
+            >
+              rename
+            </button>
           </label>
         </div>
       </div>
