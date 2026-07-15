@@ -22,6 +22,14 @@ def _missing_required(data, fields):
     return None
 
 
+def _valid_region(region):
+    if not isinstance(region, dict):
+        return False
+    if set(region.keys()) != {"x", "y", "w", "h"}:
+        return False
+    return all(isinstance(region[k], (int, float)) for k in ("x", "y", "w", "h"))
+
+
 @edits_bp.route("/edits", methods=["POST"])
 def create_edit():
     data, error = _json_body()
@@ -66,10 +74,20 @@ def update_edit(edit_id):
     data, error = _json_body()
     if error:
         return error
-    new_status = data.get("status")
-    if new_status not in VALID_STATUSES:
-        return jsonify({"error": "invalid status"}), 400
-    edit.status = new_status
+
+    if "status" not in data and "region_affected" not in data:
+        return jsonify({"error": "must provide status and/or region_affected"}), 400
+
+    if "status" in data:
+        if data["status"] not in VALID_STATUSES:
+            return jsonify({"error": "invalid status"}), 400
+        edit.status = data["status"]
+
+    if "region_affected" in data:
+        if not _valid_region(data["region_affected"]):
+            return jsonify({"error": "invalid region_affected"}), 400
+        edit.region_affected = data["region_affected"]
+
     db.session.commit()
     return jsonify(edit.to_dict()), 200
 

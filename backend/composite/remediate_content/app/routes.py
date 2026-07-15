@@ -132,6 +132,24 @@ def remediate_content(draft_id):
 
     # 2. propose one pending edit per image/metadata detection — no pixel work yet
     #    the user can skip any of these before confirming
+    #
+    # This route can legitimately be called more than once for the same draft
+    # (e.g. a slow scan makes the client's request time out and retry while
+    # the server is still finishing — see fetchWithRetry in the frontend) so
+    # it has to be idempotent: re-propose must reuse an edit that already
+    # matches a detection's region rather than creating a second one, or a
+    # retried call silently doubles every edit (harmless while both copies
+    # sit at the same region, but very visible once one of them is dragged
+    # to a new spot and the other, hidden one is still applied at confirm).
+    existing_resp = requests.get(f"{EDITS_SERVICE_URL}/drafts/{draft_id}/edits")
+    if existing_resp.status_code != 200:
+        return jsonify({"error": "failed to fetch existing edits"}), 502
+    existing_by_key = {}
+    for e in existing_resp.json():
+        region = e.get("region_affected")
+        key = (e["edit_type"], tuple(sorted(region.items())) if region else None)
+        existing_by_key.setdefault(key, e)
+
     proposed = []
     for d in image_detections:
         # Keyed off category, not region presence: metadata findings never
@@ -140,15 +158,22 @@ def remediate_content(draft_id):
         # large bounding box gets dropped rather than trusted — see
         # vision_scanner.py's MAX_BOX_AREA_FRAC) without that meaning
         # "strip metadata".
-        payload = {
-            "draft_id": draft_id,
-            "edit_type": "metadata_strip" if d.get("category") == "metadata" else "blur",
-            "region_affected": d.get("bounding_region"),
-        }
+        edit_type = "metadata_strip" if d.get("category") == "metadata" else "blur"
+        region = d.get("bounding_region")
+        key = (edit_type, tuple(sorted(region.items())) if region else None)
+
+        existing = existing_by_key.get(key)
+        if existing:
+            proposed.append(existing)
+            continue
+
+        payload = {"draft_id": draft_id, "edit_type": edit_type, "region_affected": region}
         edit_resp = requests.post(f"{EDITS_SERVICE_URL}/edits", json=payload)
         if edit_resp.status_code != 201:
             return jsonify({"error": "failed to create edit"}), 502
-        proposed.append(edit_resp.json())
+        created = edit_resp.json()
+        proposed.append(created)
+        existing_by_key[key] = created
 
     # 3. for text leaks, generate a redacted caption the user can copy-paste
     # straight over their original — no manual editing required

@@ -38,7 +38,10 @@ _WHOLE_IMAGE_FALLBACK_PROMPT = (
     "You scan a photo for school uniforms, crests, or badges that could "
     "identify which school the person in the photo attends. Flag these as "
     "category 'document'. Do NOT flag faces, house numbers, street signs, or "
-    "license plates — those are handled elsewhere. For each finding give "
+    "license plates — those are handled elsewhere by a dedicated OCR pass and "
+    "will be caught even if you skip them here. If you do end up flagging a "
+    "house number, street sign, or plate anyway, use category 'location' "
+    "instead of 'document' so it's labeled correctly. For each finding give "
     "exposure_score 1 (low risk) to 5 (high risk), confidence 0.0-1.0, a "
     "one-line plain-language detail, and a bounding box as FRACTIONS of "
     "image width/height (x_frac, y_frac, w_frac, h_frac, each 0-1) so it "
@@ -64,7 +67,7 @@ class PersonCropFinding(BaseModel):
 
 
 class VisualFinding(BaseModel):
-    category: Literal["document"]
+    category: Literal["document", "location"]
     exposure_score: int = Field(ge=1, le=5)
     confidence: float = Field(ge=0.0, le=1.0)
     detail: str
@@ -85,12 +88,21 @@ def _frac_to_pixels(box, width, height, x_offset=0, y_offset=0):
 
 
 # Guards against a hallucinated box that's implausibly large relative to the
-# whole photo — rather than trust it and blur a huge region, drop the box
-# and keep the finding as a text-only flag. Only relevant to the no-face
-# whole-photo fallback below; the per-person paths use geometric regions
-# (chest band, from pose or from face proportions) instead of an LLM-guessed
-# box.
+# whole photo — rather than trust it and blur a huge region, the whole
+# finding is dropped (see the FALLBACK_MIN_BOX_AREA_FRAC comment below for
+# why this can't fall back to a region-less text-only flag instead). Only
+# relevant to the no-face whole-photo fallback below; the per-person paths
+# use geometric regions (chest band, from pose or from face proportions)
+# instead of an LLM-guessed box.
 FALLBACK_MAX_BOX_AREA_FRAC = 0.15
+
+# Guards the opposite failure: a box so small it's practically zero-size.
+# Neither this nor an oversized box (above) can fall back to a region-less
+# "text-only" finding — a "blur" finding with nothing left to anchor it to
+# is just a dead entry downstream (a toggle that can never visibly do
+# anything), so both cases drop the whole finding instead of keeping it
+# region-less.
+FALLBACK_MIN_BOX_AREA_FRAC = 0.0005
 
 # Caps how many people get an individual gpt-4o classification call per
 # photo, so one large group shot can't rack up unbounded API calls — mirrors
@@ -120,8 +132,9 @@ CHEST_BAND_PADDING_RATIO = 0.35
 CHEST_BAND_UPSCALE = 3
 
 
-def _is_plausible_box(box, max_area_frac):
-    return (box.w_frac * box.h_frac) <= max_area_frac
+def _is_plausible_box(box, min_area_frac, max_area_frac):
+    area = box.w_frac * box.h_frac
+    return min_area_frac <= area <= max_area_frac
 
 
 def _crop_with_padding(img, region, padding_ratio):
@@ -172,7 +185,13 @@ def _scan_whole_image_fallback(image_path, width, height):
 
     findings = []
     for f in result.findings:
-        box = f.bounding_box if f.bounding_box and _is_plausible_box(f.bounding_box, FALLBACK_MAX_BOX_AREA_FRAC) else None
+        # A finding this path produces is fundamentally about a specific
+        # visual spot in the photo — unlike ocr_scanner's text-based
+        # findings, there's no meaningful "flag it, but don't blur anything"
+        # state here, so a finding with no plausible box is dropped entirely
+        # rather than kept with a null region.
+        if not f.bounding_box or not _is_plausible_box(f.bounding_box, FALLBACK_MIN_BOX_AREA_FRAC, FALLBACK_MAX_BOX_AREA_FRAC):
+            continue
         findings.append({
             "category": f.category,
             "source_type": "image",
@@ -180,7 +199,7 @@ def _scan_whole_image_fallback(image_path, width, height):
             "confidence": f.confidence,
             "model_version": "gpt-4o",
             "detail": f.detail,
-            "bounding_region": _frac_to_pixels(box, width, height) if box else None,
+            "bounding_region": _frac_to_pixels(f.bounding_box, width, height),
         })
     return findings
 

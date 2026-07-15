@@ -1,6 +1,7 @@
 const UPLOAD_POST_URL = import.meta.env.VITE_UPLOAD_POST_URL || 'http://localhost:5014'
 const SCAN_DRAFT_URL = import.meta.env.VITE_SCAN_DRAFT_URL || 'http://localhost:5012'
 const DETECTIONS_URL = import.meta.env.VITE_DETECTIONS_URL || 'http://localhost:5003'
+const EDITS_URL = import.meta.env.VITE_EDITS_URL || 'http://localhost:5004'
 const REMEDIATE_CONTENT_URL = import.meta.env.VITE_REMEDIATE_CONTENT_URL || 'http://localhost:5011'
 const QUARANTINE_HIGH_RISK_URL = import.meta.env.VITE_QUARANTINE_HIGH_RISK_URL || 'http://localhost:5010'
 
@@ -71,6 +72,51 @@ export async function revertEdit(editId) {
 
 export async function restoreEdit(editId) {
   const res = await fetchWithRetry(`${REMEDIATE_CONTENT_URL}/edits/${editId}/restore`, { method: 'POST' })
+  return parseOrThrow(res)
+}
+
+// Talks to the edits atomic service directly (same pattern as getDetections
+// talking directly to the detections atomic service) rather than through
+// remediate_content — a region edit only needs to be correct by the time
+// /remediate/confirm reads pending edits, it doesn't need to trigger a
+// re-render itself the way revert does.
+export async function updateEditRegion(editId, region) {
+  const res = await fetchWithRetry(`${EDITS_URL}/edits/${editId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ region_affected: region }),
+  })
+  return parseOrThrow(res)
+}
+
+// For a spot the scanner missed entirely: records a Detection (so there's
+// still an audit trail of what got flagged and why, same as every
+// scanner-found one, just with model_version "manual") and then an Edit
+// pointing at the same region, mirroring exactly what remediate_content's
+// propose step already does per-detection — just triggered from the
+// frontend instead of a scanner. Returns the created edit, since that's
+// what actually drives the blur at confirm time.
+export async function addManualEdit(draftId, region) {
+  await parseOrThrow(
+    await fetchWithRetry(`${DETECTIONS_URL}/detections`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        draft_id: draftId,
+        category: 'document',
+        source_type: 'image',
+        exposure_score: 3,
+        model_version: 'manual',
+        bounding_region: region,
+      }),
+    })
+  )
+
+  const res = await fetchWithRetry(`${EDITS_URL}/edits`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ draft_id: draftId, edit_type: 'blur', region_affected: region }),
+  })
   return parseOrThrow(res)
 }
 

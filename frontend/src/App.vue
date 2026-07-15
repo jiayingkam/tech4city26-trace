@@ -119,6 +119,7 @@ function restart() {
         :draft-id="draftId"
         :remediation="activeRemediation"
         :photo-url="photoPreviewUrl"
+        :detections="detections"
         @restart="restart"
       />
       <QuarantineView

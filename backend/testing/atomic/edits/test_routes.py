@@ -138,6 +138,61 @@ def test_update_edit_status_invalid(client, mock_db):
     mock_db.session.commit.assert_not_called()
 
 
+def test_update_edit_region_success(client, mock_db):
+    """Tests updating just an edit's region_affected (PATCH /edits/<id>)."""
+    mock_edit = MagicMock()
+    mock_edit.region_affected = {"x": 0, "y": 0, "w": 10, "h": 10}
+    mock_edit.to_dict.return_value = {"edit_id": "edit_abc", "region_affected": {"x": 5, "y": 6, "w": 20, "h": 30}}
+    mock_db.session.get.return_value = mock_edit
+
+    response = client.patch("/edits/edit_abc", json={"region_affected": {"x": 5, "y": 6, "w": 20, "h": 30}})
+
+    assert response.status_code == 200
+    assert mock_edit.region_affected == {"x": 5, "y": 6, "w": 20, "h": 30}
+    mock_db.session.commit.assert_called_once()
+
+
+def test_update_edit_status_and_region_together(client, mock_db):
+    """Tests updating both status and region_affected in one PATCH."""
+    mock_edit = MagicMock()
+    mock_edit.to_dict.return_value = {"edit_id": "edit_abc", "status": "applied"}
+    mock_db.session.get.return_value = mock_edit
+
+    response = client.patch(
+        "/edits/edit_abc",
+        json={"status": "applied", "region_affected": {"x": 1, "y": 2, "w": 3, "h": 4}},
+    )
+
+    assert response.status_code == 200
+    assert mock_edit.status == "applied"
+    assert mock_edit.region_affected == {"x": 1, "y": 2, "w": 3, "h": 4}
+    mock_db.session.commit.assert_called_once()
+
+
+def test_update_edit_region_invalid_shape(client, mock_db):
+    """Tests that a region_affected missing a required key returns 400."""
+    mock_edit = MagicMock()
+    mock_db.session.get.return_value = mock_edit
+
+    response = client.patch("/edits/edit_abc", json={"region_affected": {"x": 1, "y": 2, "w": 3}})
+
+    assert response.status_code == 400
+    assert response.json == {"error": "invalid region_affected"}
+    mock_db.session.commit.assert_not_called()
+
+
+def test_update_edit_no_fields(client, mock_db):
+    """Tests that a PATCH with neither status nor region_affected returns 400."""
+    mock_edit = MagicMock()
+    mock_db.session.get.return_value = mock_edit
+
+    response = client.patch("/edits/edit_abc", json={})
+
+    assert response.status_code == 400
+    assert response.json == {"error": "must provide status and/or region_affected"}
+    mock_db.session.commit.assert_not_called()
+
+
 def test_delete_edit_success(client, mock_db):
     """Tests deleting an edit item successfully (DELETE /edits/<id>)."""
     mock_edit = MagicMock()
