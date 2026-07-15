@@ -294,9 +294,18 @@ function cancelRename() {
   renamingEditId.value = null
 }
 
+// Enter and Esc explicitly blur the input (see template) before calling
+// this, rather than leaving Vue to remove a still-focused element from the
+// DOM when renamingEditId flips back to null. A focused element that gets
+// disconnected has its focus reassigned by the browser to some other
+// focusable element in the document — not necessarily <body> — which on
+// this list can land on an unrelated checkbox and spuriously fire its
+// change handler. Explicit blur() first sends focus to the safe default,
+// so there's nothing left for the browser to reassign once Vue removes it.
 async function saveRename(edit) {
-  // Enter triggers this then blur fires it again; the guard makes the
-  // second call a no-op instead of a duplicate request.
+  // Both the explicit blur() below (Enter/Esc) and a real click-away funnel
+  // through this same @blur handler; the guard makes a second call a no-op
+  // instead of a duplicate request.
   if (renamingEditId.value !== edit.edit_id) return
   renamingEditId.value = null
   const label = renameDraft.value.trim()
@@ -388,8 +397,8 @@ async function copySuggested() {
             maxlength="255"
             autofocus
             placeholder="Name this area"
-            @keyup.enter="saveRename(edit)"
-            @keyup.esc="cancelRename"
+            @keyup.enter="$event.target.blur()"
+            @keyup.esc="cancelRename(); $event.target.blur()"
             @blur="saveRename(edit)"
           />
           <label v-else class="form-check-label small" :for="edit.edit_id">
