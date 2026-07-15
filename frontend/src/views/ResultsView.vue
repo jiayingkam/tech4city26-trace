@@ -11,6 +11,9 @@ defineEmits(['restart', 'continue'])
 const CATEGORY_LABELS = {
   location: 'Location detail',
   document: 'Identifying document',
+  financial: 'Financial detail',
+  contact: 'Contact detail',
+  credentials: 'Password or access code',
 }
 
 // Bounding boxes come back in pixels against the *original* image's

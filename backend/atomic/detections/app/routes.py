@@ -4,7 +4,7 @@ from .models import Detection
 
 detections_bp = Blueprint("detections", __name__)
 
-VALID_CATEGORIES = ("face", "location", "document", "metadata", "contact", "financial")
+VALID_CATEGORIES = ("face", "location", "document", "metadata", "contact", "financial", "credentials")
 VALID_SOURCE_TYPES = ("text", "image", "video")
 
 

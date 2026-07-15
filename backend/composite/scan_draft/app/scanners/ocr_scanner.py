@@ -2,26 +2,12 @@ import base64
 import io
 import os
 from typing import List, Literal
-from google.api_core.client_options import ClientOptions
 from google.cloud import vision
 from PIL import Image
 from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
 
-_vision_client = None
-
-
-def _get_vision_client():
-    """Lazily built and cached — CLOUD_VISION_KEY is a plain API key (not a
-    service-account JSON), so auth is passed via client_options rather than
-    the usual GOOGLE_APPLICATION_CREDENTIALS file, matching how every other
-    API key in this codebase already lives in .env."""
-    global _vision_client
-    if _vision_client is None:
-        _vision_client = vision.ImageAnnotatorClient(
-            client_options=ClientOptions(api_key=os.environ["CLOUD_VISION_KEY"])
-        )
-    return _vision_client
+from .cloud_vision_client import get_vision_client
 
 # Tesseract's own confidence scale is 0-100. Below CLASSIFY_CONFIDENCE the
 # read text is trusted enough to hand to the text classifier below; below
@@ -43,22 +29,34 @@ UNCLEAR_MAX_CHECKS = 6
 
 _CLASSIFY_PROMPT = (
     "You are given a numbered list of short text snippets read off objects, "
-    "signs, or surfaces in a photo via OCR. For each snippet, decide whether "
-    "it identifies a specific real-world location or vehicle: a house, unit, "
-    "or block number, or a street name/sign, should be flagged as category "
-    "'location'; a vehicle license/number plate should be flagged as "
-    "'document'. Each snippet was read off a physically separate spot in the "
-    "photo, so a bare 2-5 digit number with no other words next to it "
-    "(e.g. '308') is still very often a standalone house/unit/block number "
-    "sign — flag these as 'location' at low confidence rather than "
-    "dismissing them, unless something in the snippet itself marks it as a "
-    "price, score, or date instead (a '$' or decimal sign, a plausible "
-    "year, etc.). Ignore shop names, brand names, and decorative text — "
-    "most OCR snippets from a photo are noise and should NOT be flagged. "
-    "For each flagged snippet, return its text_index (matching the numbered list), "
-    "exposure_score 1 (low risk) to 5 (high risk), confidence 0.0-1.0, and a "
-    "one-line plain-language detail. Return no findings if nothing is "
-    "sensitive."
+    "signs, documents, screens, or surfaces in a photo via OCR. Each snippet "
+    "was read off a physically separate spot in the photo. For each snippet, "
+    "decide whether it reveals personal information a stranger could use to "
+    "identify, locate, contact, or defraud the person in the photo, and if "
+    "so flag it under exactly one of these categories:\n"
+    "- 'location': a house, unit, or block number, a street name/sign, or "
+    "another marker that pins down a specific real-world place. A bare 2-5 "
+    "digit number with no other words next to it (e.g. '308') is still very "
+    "often a standalone house/unit/block number sign — flag these at low "
+    "confidence rather than dismissing them, unless something in the "
+    "snippet itself marks it as a price, score, or date instead.\n"
+    "- 'financial': a credit/debit card number, CVV, bank account or "
+    "PayNow-style payment number, or a cheque's account/routing details.\n"
+    "- 'contact': a phone number, email address, or a home/mailing address "
+    "written as text (e.g. on a letter, parcel, or delivery label) — "
+    "including a full name paired with that address.\n"
+    "- 'document': a vehicle license/number plate, or an ID number from an "
+    "official document or credential — passport, national ID/IC, driver's "
+    "license, boarding pass booking reference, medical prescription, or a "
+    "hospital/event wristband.\n"
+    "- 'credentials': a password, PIN, login, or access/security code — "
+    "e.g. on a sticky note, whiteboard, or visible on a screen.\n"
+    "Ignore shop names, brand names, decorative text, and generic on-screen "
+    "UI chrome — most OCR snippets from a photo are noise and should NOT be "
+    "flagged. For each flagged snippet, return its text_index (matching the "
+    "numbered list), the category, exposure_score 1 (low risk) to 5 (high "
+    "risk), confidence 0.0-1.0, and a one-line plain-language detail. "
+    "Return no findings if nothing is sensitive."
 )
 
 _SIGNAGE_CHECK_PROMPT = (
@@ -75,7 +73,7 @@ _SIGNAGE_CHECK_PROMPT = (
 
 class OcrFinding(BaseModel):
     text_index: int
-    category: Literal["location", "document"]
+    category: Literal["location", "financial", "contact", "document", "credentials"]
     exposure_score: int = Field(ge=1, le=5)
     confidence: float = Field(ge=0.0, le=1.0)
     detail: str
@@ -85,6 +83,11 @@ class OcrScanResult(BaseModel):
     findings: List[OcrFinding]
 
 
+# Kept narrower than OcrFinding's categories on purpose: this only fires when
+# OCR couldn't read the text at all, so the model is guessing from shape/
+# context alone (see _looks_like_signage below). Guessing 'location' or a
+# vehicle plate ('document') from a blurry sign shape is reasonable; guessing
+# 'financial' or 'credentials' from unreadable text would be unfounded.
 class SignageCheck(BaseModel):
     is_signage: bool
     category: Literal["location", "document"] = "location"
@@ -105,7 +108,7 @@ def _ocr_lines(img, min_confidence=0):
     which just hand it different images."""
     buf = io.BytesIO()
     img.convert("RGB").save(buf, format="PNG")
-    response = _get_vision_client().document_text_detection(image=vision.Image(content=buf.getvalue()))
+    response = get_vision_client().document_text_detection(image=vision.Image(content=buf.getvalue()))
     if response.error.message:
         raise RuntimeError(f"Cloud Vision error: {response.error.message}")
 
@@ -315,7 +318,12 @@ def _looks_like_signage(img, region):
     tightened via a Tesseract re-pass when one succeeds, since the padding
     is meant to give the model context, not to define the blur area, and a
     hit can legitimately be a real sign near the edge of the crop rather
-    than filling it."""
+    than filling it. If re-localization fails to find anything, falls back
+    to the original *unpadded* OCR region rather than the padded one —
+    padding_ratio=1.0 doubles the box on every side to give the model
+    surrounding context, which is fine for asking "is this signage" but far
+    too generous to actually blur: at that size the box routinely spills
+    into whatever is next to the sign (a nearby face, in testing)."""
     crop, padded_region = _crop_with_padding(img, region)
     buf = io.BytesIO()
     crop.convert("RGB").save(buf, format="JPEG")
@@ -332,7 +340,7 @@ def _looks_like_signage(img, region):
 
     report_region = padded_region
     if result.is_signage:
-        report_region = _relocalize_via_ocr(img, padded_region) or padded_region
+        report_region = _relocalize_via_ocr(img, padded_region) or region
     return result, report_region
 
 

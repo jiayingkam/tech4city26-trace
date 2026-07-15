@@ -134,9 +134,15 @@ def remediate_content(draft_id):
     #    the user can skip any of these before confirming
     proposed = []
     for d in image_detections:
+        # Keyed off category, not region presence: metadata findings never
+        # carry a region by design (nothing to blur, only strip), but an
+        # image finding can also legitimately lack one now (an implausibly
+        # large bounding box gets dropped rather than trusted — see
+        # vision_scanner.py's MAX_BOX_AREA_FRAC) without that meaning
+        # "strip metadata".
         payload = {
             "draft_id": draft_id,
-            "edit_type": "blur" if d.get("bounding_region") else "metadata_strip",
+            "edit_type": "metadata_strip" if d.get("category") == "metadata" else "blur",
             "region_affected": d.get("bounding_region"),
         }
         edit_resp = requests.post(f"{EDITS_SERVICE_URL}/edits", json=payload)
