@@ -1,5 +1,6 @@
 <script setup>
 import { ref } from 'vue'
+import { login, signup } from '../api'
 
 const emit = defineEmits(['success'])  // a way to tell App.vue "login worked"
 
@@ -13,20 +14,12 @@ async function submit() {
   error.value = ''
   loading.value = true
   try {
-    const usersUrl = import.meta.env.VITE_USERS_URL || 'http://localhost:5000'
-    const res = await fetch(`${usersUrl}/api/${mode.value}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.value, password: password.value })
-    })
-    const data = await res.json()
-    if (res.ok) {
-      emit('success')          // success → App.vue advances the step
-    } else {
-      error.value = data.error // show the message Flask sent back
-    }
+    const user = mode.value === 'login'
+      ? await login(email.value, password.value)
+      : await signup(email.value, password.value)
+    emit('success', user)    // success → App.vue advances past the login screen
   } catch (e) {
-    error.value = 'Could not reach the server. Is Flask running?'
+    error.value = e.message || 'Could not reach the server. Is Flask running?'
   } finally {
     loading.value = false
   }

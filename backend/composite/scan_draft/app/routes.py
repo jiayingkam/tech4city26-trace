@@ -1,8 +1,9 @@
 import os
 import tempfile
 import requests
-from flask import Blueprint, jsonify
+from flask import Blueprint, request, jsonify
 
+from trace_auth import forwarded_auth_headers
 from .scanners.exif_scanner import scan_metadata
 from .scanners.text_scanner import scan_text
 from .scanners.vision_scanner import scan_image
@@ -25,7 +26,9 @@ def _fetch_original_to_tempfile(draft_id, storage_path):
     have to cross the network instead of being read off a shared path.
     Returns None if upload_post doesn't have the file (caller treats that the
     same as "nothing to scan")."""
-    resp = requests.get(f"{UPLOAD_POST_SERVICE_URL}/drafts/{draft_id}/original")
+    resp = requests.get(
+        f"{UPLOAD_POST_SERVICE_URL}/drafts/{draft_id}/original", headers=forwarded_auth_headers(request)
+    )
     if resp.status_code != 200:
         return None
     suffix = os.path.splitext(storage_path)[1]
@@ -39,7 +42,8 @@ def run_scan(draft_id):
     """Reads the draft from content_drafts, runs the classifier for its content
     type, and writes each finding to detections. Returns (created_detections, None)
     on success or (None, (response, status)) on failure."""
-    draft_resp = requests.get(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}")
+    auth_headers = forwarded_auth_headers(request)
+    draft_resp = requests.get(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}", headers=auth_headers)
     if draft_resp.status_code == 404:
         return None, (jsonify({"error": "draft not found"}), 404)
     if draft_resp.status_code != 200:
@@ -69,7 +73,11 @@ def run_scan(draft_id):
 
     created = []
     for finding in findings:
-        d_resp = requests.post(f"{DETECTIONS_SERVICE_URL}/detections", json={"draft_id": draft_id, **finding})
+        d_resp = requests.post(
+            f"{DETECTIONS_SERVICE_URL}/detections",
+            json={"draft_id": draft_id, **finding},
+            headers=auth_headers,
+        )
         if d_resp.status_code != 201:
             return None, (jsonify({"error": "failed to record detection"}), 502)
         created.append(d_resp.json())
@@ -86,8 +94,9 @@ def scan_draft_endpoint(draft_id):
 
 @bp.route("/drafts/<draft_id>/process", methods=["POST"])
 def process_draft(draft_id):
+    auth_headers = forwarded_auth_headers(request)
     # fetch detections once; routing decision is based on the worst score present
-    resp = requests.get(f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections")
+    resp = requests.get(f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections", headers=auth_headers)
     if resp.status_code != 200:
         return jsonify({"error": "failed to fetch detections"}), 502
     detections = resp.json()
@@ -107,7 +116,8 @@ def process_draft(draft_id):
     # any region at score >=4 puts the whole draft on hold for human review
     if any(d["exposure_score"] >= 4 for d in detections):
         q_resp = requests.post(
-            f"{QUARANTINE_HIGH_RISK_SERVICE_URL}/drafts/{draft_id}/quarantine"
+            f"{QUARANTINE_HIGH_RISK_SERVICE_URL}/drafts/{draft_id}/quarantine",
+            headers=auth_headers,
         )
         if q_resp.status_code != 201:
             return jsonify({"error": "quarantine failed", "detail": q_resp.json()}), 502
@@ -119,7 +129,8 @@ def process_draft(draft_id):
 
     # all scores <=3 — safe to auto-remediate
     r_resp = requests.post(
-        f"{REMEDIATE_CONTENT_SERVICE_URL}/drafts/{draft_id}/remediate"
+        f"{REMEDIATE_CONTENT_SERVICE_URL}/drafts/{draft_id}/remediate",
+        headers=auth_headers,
     )
     if r_resp.status_code != 200:
         return jsonify({"error": "remediation failed", "detail": r_resp.json()}), 502

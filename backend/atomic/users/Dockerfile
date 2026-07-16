@@ -19,10 +19,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg ca-c
     ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 unixodbc-dev && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY atomic/users/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app/ app/
+COPY shared/trace_auth trace_auth/
+COPY atomic/users/app/ app/
 
 ENV FLASK_APP=app.app:create_app
 ENV FLASK_RUN_HOST=0.0.0.0

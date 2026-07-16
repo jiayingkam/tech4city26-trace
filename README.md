@@ -132,6 +132,8 @@ Output prints `[ok]` / `[warn]` / `[FAIL]` per step and exits non-zero if anythi
 
 ## Accessing Swagger
 
+Swagger documents are used to design, build, document, and consume REST APIs. They provide a standardized, machine-readable blueprint that details every endpoint, parameter, and response, allowing developers and automated tools to easily understand and interact with an API.
+
 Once all containers are running, open the combined Swagger UI in your browser:
 
 ```

@@ -21,3 +21,12 @@ services:
       sh -c "pip install --no-cache-dir -r requirements-dev.txt &&
              pytest /testing"
 
+  # ── Testing Users ─────────────────────────────────────────────────────────
+  users:
+    volumes:
+      - ./atomic/users:/app
+      - ./testing/atomic/users:/testing
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements-dev.txt &&
+             pytest /testing"
+

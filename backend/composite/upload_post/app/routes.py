@@ -1,7 +1,9 @@
 import os
 import requests
 from flask import Blueprint, request, jsonify, send_file
+from flask_jwt_extended import get_jwt_identity
 from werkzeug.utils import secure_filename
+from trace_auth import forwarded_auth_headers
 
 bp = Blueprint("upload_post", __name__)
 
@@ -31,14 +33,18 @@ def upload_draft():
     shared draft_storage volume and attaches its storage_path to the draft.
     One call for the frontend to make on 'Share' — mirrors scan_draft/process,
     which also folds several atomic calls into a single composite endpoint."""
-    owner_id = request.form.get("owner_id")
+    # owner_id comes from the caller's own token, not the form body — a
+    # client can no longer create a draft on someone else's behalf just by
+    # naming a different owner_id.
+    owner_id = get_jwt_identity()
     content_type = request.form.get("content_type")
     source_app = request.form.get("source_app")
     text_content = request.form.get("text_content")
     file = request.files.get("file")
+    auth_headers = forwarded_auth_headers(request)
 
-    if not owner_id or content_type not in VALID_CONTENT_TYPES:
-        return jsonify({"error": "owner_id and a valid content_type are required"}), 400
+    if content_type not in VALID_CONTENT_TYPES:
+        return jsonify({"error": "a valid content_type is required"}), 400
     if content_type in ("image", "video") and file is None:
         return jsonify({"error": "file is required for content_type image/video"}), 400
 
@@ -47,7 +53,7 @@ def upload_draft():
         "content_type": content_type,
         "source_app": source_app,
         "text_content": text_content,
-    })
+    }, headers=auth_headers)
     if create_resp.status_code != 201:
         return jsonify({"error": "failed to create draft", "detail": _safe_detail(create_resp)}), 502
     draft = create_resp.json()
@@ -62,15 +68,16 @@ def upload_draft():
         try:
             file.save(absolute_path)
         except OSError as e:
-            requests.delete(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}")
+            requests.delete(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}", headers=auth_headers)
             return jsonify({"error": "failed to store file", "detail": str(e)}), 502
 
         patch_resp = requests.patch(
             f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}",
             json={"storage_path": relative_path},
+            headers=auth_headers,
         )
         if patch_resp.status_code != 200:
-            requests.delete(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}")
+            requests.delete(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}", headers=auth_headers)
             return jsonify({"error": "failed to attach storage_path", "detail": _safe_detail(patch_resp)}), 502
         draft = patch_resp.json()
 
@@ -93,6 +100,7 @@ def insert_caption(draft_id):
     patch_resp = requests.patch(
         f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}",
         json={"text_content": text_content},
+        headers=forwarded_auth_headers(request),
     )
     if patch_resp.status_code == 404:
         return jsonify({"error": "draft not found"}), 404
@@ -108,7 +116,10 @@ def get_original(draft_id):
     remediate_content run as separate services with their own separate
     filesystems (no shared draft_storage volume outside Docker Compose), so
     this is how they now have to reach it instead of reading the path directly."""
-    draft_resp = requests.get(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}")
+    draft_resp = requests.get(
+        f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}",
+        headers=forwarded_auth_headers(request),
+    )
     if draft_resp.status_code == 404:
         return jsonify({"error": "draft not found"}), 404
     if draft_resp.status_code != 200:

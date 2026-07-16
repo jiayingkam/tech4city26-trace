@@ -2,9 +2,10 @@ import os
 import tempfile
 import threading
 import requests
-from flask import Blueprint, jsonify, send_file
+from flask import Blueprint, request, jsonify, send_file
 from PIL import Image, ImageFilter
 
+from trace_auth import forwarded_auth_headers
 from .text_redaction import redact_caption
 
 remediate_bp = Blueprint("remediate_content", __name__)
@@ -31,7 +32,7 @@ OUTPUT_DIR = os.path.join(SERVICE_ROOT, "storage", "remediated")
 
 
 def _get_draft(draft_id):
-    resp = requests.get(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}")
+    resp = requests.get(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}", headers=forwarded_auth_headers(request))
     if resp.status_code == 404:
         return None, (jsonify({"error": "draft not found"}), 404)
     if resp.status_code != 200:
@@ -55,7 +56,9 @@ def _get_original_path(draft_id):
     if not storage_path:
         return None, (jsonify({"error": "draft has no stored file"}), 400)
 
-    resp = requests.get(f"{UPLOAD_POST_SERVICE_URL}/drafts/{draft_id}/original")
+    resp = requests.get(
+        f"{UPLOAD_POST_SERVICE_URL}/drafts/{draft_id}/original", headers=forwarded_auth_headers(request)
+    )
     if resp.status_code != 200:
         return None, (jsonify({"error": "original file not found"}), 404)
 
@@ -96,7 +99,7 @@ def _regenerate_output(draft_id):
     if not os.path.exists(original_path):
         return None, (jsonify({"error": "original file not found"}), 404)
 
-    resp = requests.get(f"{EDITS_SERVICE_URL}/drafts/{draft_id}/edits")
+    resp = requests.get(f"{EDITS_SERVICE_URL}/drafts/{draft_id}/edits", headers=forwarded_auth_headers(request))
     if resp.status_code != 200:
         return None, (jsonify({"error": "failed to fetch edits"}), 502)
     applied = [e for e in resp.json() if e["status"] == "applied"]
@@ -112,7 +115,9 @@ def remediate_content(draft_id):
     # calls this instead, the detections ARE the >=4 finding(s) that caused
     # the hold in the first place — filtering those out left this route with
     # nothing to do and "edit" permanently broken for quarantined items.
-    resp = requests.get(f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections")
+    resp = requests.get(
+        f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections", headers=forwarded_auth_headers(request)
+    )
     if resp.status_code != 200:
         return jsonify({"error": "failed to fetch detections"}), 502
     detections = resp.json()
@@ -151,8 +156,9 @@ def remediate_content(draft_id):
     # retried call silently doubles every edit (harmless while both copies
     # sit at the same region, but very visible once one of them is dragged
     # to a new spot and the other, hidden one is still applied at confirm).
+    auth_headers = forwarded_auth_headers(request)
     with _draft_propose_lock(draft_id):
-        existing_resp = requests.get(f"{EDITS_SERVICE_URL}/drafts/{draft_id}/edits")
+        existing_resp = requests.get(f"{EDITS_SERVICE_URL}/drafts/{draft_id}/edits", headers=auth_headers)
         if existing_resp.status_code != 200:
             return jsonify({"error": "failed to fetch existing edits"}), 502
         existing_by_key = {}
@@ -179,7 +185,7 @@ def remediate_content(draft_id):
                 continue
 
             payload = {"draft_id": draft_id, "edit_type": edit_type, "region_affected": region}
-            edit_resp = requests.post(f"{EDITS_SERVICE_URL}/edits", json=payload)
+            edit_resp = requests.post(f"{EDITS_SERVICE_URL}/edits", json=payload, headers=auth_headers)
             if edit_resp.status_code != 201:
                 return jsonify({"error": "failed to create edit"}), 502
             created = edit_resp.json()
@@ -217,7 +223,8 @@ def remediate_content(draft_id):
 
 @remediate_bp.route("/drafts/<draft_id>/remediate/confirm", methods=["POST"])
 def confirm_remediation(draft_id):
-    resp = requests.get(f"{EDITS_SERVICE_URL}/drafts/{draft_id}/edits")
+    auth_headers = forwarded_auth_headers(request)
+    resp = requests.get(f"{EDITS_SERVICE_URL}/drafts/{draft_id}/edits", headers=auth_headers)
     if resp.status_code != 200:
         return jsonify({"error": "failed to fetch edits"}), 502
     # only apply edits the user hasn't skipped
@@ -230,6 +237,7 @@ def confirm_remediation(draft_id):
         patch_resp = requests.patch(
             f"{EDITS_SERVICE_URL}/edits/{e['edit_id']}",
             json={"status": "applied"},
+            headers=auth_headers,
         )
         if patch_resp.status_code != 200:
             return jsonify({"error": "failed to update edit"}), 502
@@ -252,7 +260,7 @@ def confirm_remediation(draft_id):
 @remediate_bp.route("/drafts/<draft_id>/download", methods=["GET"])
 def download_remediated(draft_id):
     # only serve the clean file if the user confirmed (>=1 applied edit)
-    resp = requests.get(f"{EDITS_SERVICE_URL}/drafts/{draft_id}/edits")
+    resp = requests.get(f"{EDITS_SERVICE_URL}/drafts/{draft_id}/edits", headers=forwarded_auth_headers(request))
     if resp.status_code != 200:
         return jsonify({"error": "failed to fetch edits"}), 502
     if not any(e["status"] == "applied" for e in resp.json()):
@@ -272,7 +280,8 @@ def download_remediated(draft_id):
 
 @remediate_bp.route("/edits/<edit_id>/revert", methods=["POST"])
 def revert_edit(edit_id):
-    resp = requests.get(f"{EDITS_SERVICE_URL}/edits/{edit_id}")
+    auth_headers = forwarded_auth_headers(request)
+    resp = requests.get(f"{EDITS_SERVICE_URL}/edits/{edit_id}", headers=auth_headers)
     if resp.status_code == 404:
         return jsonify({"error": "edit not found"}), 404
     if resp.status_code != 200:
@@ -280,7 +289,9 @@ def revert_edit(edit_id):
     edit = resp.json()
     was_applied = edit["status"] == "applied"
 
-    patch_resp = requests.patch(f"{EDITS_SERVICE_URL}/edits/{edit_id}", json={"status": "reverted"})
+    patch_resp = requests.patch(
+        f"{EDITS_SERVICE_URL}/edits/{edit_id}", json={"status": "reverted"}, headers=auth_headers
+    )
     if patch_resp.status_code != 200:
         return jsonify({"error": "failed to revert edit"}), 502
 
@@ -300,14 +311,17 @@ def restore_edit(edit_id):
     It re-enters the output file on the next /remediate/confirm call, mirroring
     how a freshly-proposed edit is applied — restore does not immediately
     re-bake it in."""
-    resp = requests.get(f"{EDITS_SERVICE_URL}/edits/{edit_id}")
+    auth_headers = forwarded_auth_headers(request)
+    resp = requests.get(f"{EDITS_SERVICE_URL}/edits/{edit_id}", headers=auth_headers)
     if resp.status_code == 404:
         return jsonify({"error": "edit not found"}), 404
     if resp.status_code != 200:
         return jsonify({"error": "failed to fetch edit"}), 502
     if resp.json()["status"] != "reverted":
         return jsonify({"error": "only reverted edits can be restored"}), 400
-    patch_resp = requests.patch(f"{EDITS_SERVICE_URL}/edits/{edit_id}", json={"status": "pending"})
+    patch_resp = requests.patch(
+        f"{EDITS_SERVICE_URL}/edits/{edit_id}", json={"status": "pending"}, headers=auth_headers
+    )
     if patch_resp.status_code != 200:
         return jsonify({"error": "failed to restore edit"}), 502
     return jsonify(patch_resp.json()), 200

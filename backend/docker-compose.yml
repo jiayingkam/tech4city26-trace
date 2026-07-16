@@ -23,7 +23,9 @@ services:
   # ── Atomic services ───────────────────────────────────────────────────────
   users:
     platform: linux/amd64 # this is for apple silicon mac issue as the installation might fail w/o it.
-    build: ./atomic/users
+    build:
+      context: .
+      dockerfile: atomic/users/Dockerfile
     ports:
       - "5001:5001"
     env_file: ../.env
@@ -33,7 +35,9 @@ services:
 
   content_drafts:
     platform: linux/amd64
-    build: ./atomic/content_drafts
+    build:
+      context: .
+      dockerfile: atomic/content_drafts/Dockerfile
     ports:
       - "5002:5002"
     env_file: ../.env
@@ -49,7 +53,9 @@ services:
 
   detections:
     platform: linux/amd64
-    build: ./atomic/detections
+    build:
+      context: .
+      dockerfile: atomic/detections/Dockerfile
     ports:
       - "5003:5003"
     env_file: ../.env
@@ -65,7 +71,9 @@ services:
 
   edits:
     platform: linux/amd64
-    build: ./atomic/edits
+    build:
+      context: .
+      dockerfile: atomic/edits/Dockerfile
     ports:
       - "5004:5004"
     env_file: ../.env
@@ -91,7 +99,9 @@ services:
 
   quarantine_items:
     platform: linux/amd64
-    build: ./atomic/quarantine_items
+    build:
+      context: .
+      dockerfile: atomic/quarantine_items/Dockerfile
     ports:
       - "5006:5006"
     env_file: ../.env
@@ -107,12 +117,16 @@ services:
 
   # ── Composite services ────────────────────────────────────────────────────
   compile_family_digest:
-    build: ./composite/compile_family_digest
+    build:
+      context: .
+      dockerfile: composite/compile_family_digest/Dockerfile
     ports:
       - "5007:5007"
 
   detect_mosaic_risk:
-    build: ./composite/detect_mosaic_risk
+    build:
+      context: .
+      dockerfile: composite/detect_mosaic_risk/Dockerfile
     ports:
       - "5008:5008"
     env_file: ../.env
@@ -123,7 +137,9 @@ services:
         condition: service_healthy
 
   generate_teachable_moment:
-    build: ./composite/generate_teachable_moment
+    build:
+      context: .
+      dockerfile: composite/generate_teachable_moment/Dockerfile
     ports:
       - "5009:5009"
     env_file: ../.env
@@ -133,7 +149,9 @@ services:
  
 
   quarantine_high_risk:
-    build: ./composite/quarantine_high_risk
+    build:
+      context: .
+      dockerfile: composite/quarantine_high_risk/Dockerfile
     ports:
       - "5010:5010"
     depends_on:
@@ -149,7 +167,9 @@ services:
       start_period: 15s
 
   remediate_content:
-    build: ./composite/remediate_content
+    build:
+      context: .
+      dockerfile: composite/remediate_content/Dockerfile
     ports:
       - "5011:5011"
     env_file: ../.env
@@ -170,7 +190,9 @@ services:
       start_period: 15s
 
   scan_draft:
-    build: ./composite/scan_draft
+    build:
+      context: .
+      dockerfile: composite/scan_draft/Dockerfile
     ports:
       - "5012:5012"
     env_file: ../.env
@@ -193,12 +215,16 @@ services:
       start_period: 15s
 
   update_exposure_profile:
-    build: ./composite/update_exposure_profile
+    build:
+      context: .
+      dockerfile: composite/update_exposure_profile/Dockerfile
     ports:
       - "5013:5013"
 
   upload_post:
-    build: ./composite/upload_post
+    build:
+      context: .
+      dockerfile: composite/upload_post/Dockerfile
     ports:
       - "5014:5014"
     volumes:

@@ -4,7 +4,7 @@ import {
   confirmRemediation,
   revertEdit,
   restoreEdit,
-  downloadUrl,
+  downloadRemediated,
   updateEditRegion,
   addManualEdit,
   renameDetection,
@@ -323,7 +323,7 @@ async function confirm() {
   error.value = ''
   try {
     await confirmRemediation(props.draftId)
-    const blob = await fetch(downloadUrl(props.draftId)).then((r) => r.blob())
+    const blob = await downloadRemediated(props.draftId)
     cleanedUrl.value = URL.createObjectURL(blob)
     confirmed.value = true
   } catch (err) {

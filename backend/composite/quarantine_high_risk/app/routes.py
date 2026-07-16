@@ -1,6 +1,8 @@
 import os
 import requests
-from flask import Blueprint, jsonify
+from flask import Blueprint, request, jsonify
+
+from trace_auth import forwarded_auth_headers
 
 bp = Blueprint("quarantine_high_risk", __name__)
 
@@ -17,8 +19,9 @@ def _build_reason(detections):
 
 @bp.route("/drafts/<draft_id>/quarantine", methods=["POST"])
 def quarantine_draft(draft_id):
+    auth_headers = forwarded_auth_headers(request)
     # 1. fetch detections, high risk only (exposure >= 4)
-    resp = requests.get(f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections")
+    resp = requests.get(f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections", headers=auth_headers)
     if resp.status_code != 200:
         return jsonify({"error": "failed to fetch detections"}), 502
     detections = [d for d in resp.json() if d["exposure_score"] >= 4]
@@ -30,7 +33,7 @@ def quarantine_draft(draft_id):
         "draft_id": draft_id,
         "reason": _build_reason(detections),
     }
-    q_resp = requests.post(f"{QUARANTINE_ITEMS_SERVICE_URL}/quarantine", json=payload)
+    q_resp = requests.post(f"{QUARANTINE_ITEMS_SERVICE_URL}/quarantine", json=payload, headers=auth_headers)
     if q_resp.status_code != 201:
         return jsonify({"error": "failed to create quarantine item"}), 502
 
@@ -39,7 +42,8 @@ def quarantine_draft(draft_id):
 
 @bp.route("/drafts/<draft_id>/quarantine", methods=["GET"])
 def get_draft_quarantine(draft_id):
-    resp = requests.get(f"{QUARANTINE_ITEMS_SERVICE_URL}/drafts/{draft_id}/quarantine")
+    auth_headers = forwarded_auth_headers(request)
+    resp = requests.get(f"{QUARANTINE_ITEMS_SERVICE_URL}/drafts/{draft_id}/quarantine", headers=auth_headers)
     if resp.status_code != 200:
         return jsonify({"error": "failed to fetch quarantine items"}), 502
     items = resp.json()
@@ -48,7 +52,8 @@ def get_draft_quarantine(draft_id):
     result = []
     for item in items:
         cooldown_resp = requests.get(
-            f"{QUARANTINE_ITEMS_SERVICE_URL}/quarantine/{item['quarantine_id']}/cooldown"
+            f"{QUARANTINE_ITEMS_SERVICE_URL}/quarantine/{item['quarantine_id']}/cooldown",
+            headers=auth_headers,
         )
         cooldown = cooldown_resp.json() if cooldown_resp.status_code == 200 else {}
         result.append({**item, "cooldown": cooldown})
@@ -58,9 +63,11 @@ def get_draft_quarantine(draft_id):
 
 @bp.route("/quarantine/<quarantine_id>/release", methods=["POST"])
 def release_quarantine(quarantine_id):
+    auth_headers = forwarded_auth_headers(request)
     # check cooldown before allowing release
     cooldown_resp = requests.get(
-        f"{QUARANTINE_ITEMS_SERVICE_URL}/quarantine/{quarantine_id}/cooldown"
+        f"{QUARANTINE_ITEMS_SERVICE_URL}/quarantine/{quarantine_id}/cooldown",
+        headers=auth_headers,
     )
     if cooldown_resp.status_code == 404:
         return jsonify({"error": "quarantine item not found"}), 404
@@ -77,6 +84,7 @@ def release_quarantine(quarantine_id):
     patch_resp = requests.patch(
         f"{QUARANTINE_ITEMS_SERVICE_URL}/quarantine/{quarantine_id}",
         json={"state": "accepted"},
+        headers=auth_headers,
     )
     if patch_resp.status_code != 200:
         return jsonify({"error": "failed to release quarantine item"}), 502
@@ -86,8 +94,9 @@ def release_quarantine(quarantine_id):
 
 @bp.route("/quarantine/<quarantine_id>/edit", methods=["POST"])
 def edit_quarantine(quarantine_id):
+    auth_headers = forwarded_auth_headers(request)
     # fetch the quarantine item to get the draft_id
-    q_resp = requests.get(f"{QUARANTINE_ITEMS_SERVICE_URL}/quarantine/{quarantine_id}")
+    q_resp = requests.get(f"{QUARANTINE_ITEMS_SERVICE_URL}/quarantine/{quarantine_id}", headers=auth_headers)
     if q_resp.status_code == 404:
         return jsonify({"error": "quarantine item not found"}), 404
     if q_resp.status_code != 200:
@@ -97,7 +106,8 @@ def edit_quarantine(quarantine_id):
 
     # hand off to remediate_content
     remediate_resp = requests.post(
-        f"{REMEDIATE_CONTENT_SERVICE_URL}/drafts/{draft_id}/remediate"
+        f"{REMEDIATE_CONTENT_SERVICE_URL}/drafts/{draft_id}/remediate",
+        headers=auth_headers,
     )
     if remediate_resp.status_code != 200:
         return jsonify({"error": "remediation failed", "detail": remediate_resp.json()}), 502
@@ -106,6 +116,7 @@ def edit_quarantine(quarantine_id):
     patch_resp = requests.patch(
         f"{QUARANTINE_ITEMS_SERVICE_URL}/quarantine/{quarantine_id}",
         json={"state": "edited"},
+        headers=auth_headers,
     )
     if patch_resp.status_code != 200:
         return jsonify({"error": "failed to update quarantine state"}), 502
@@ -118,7 +129,8 @@ def edit_quarantine(quarantine_id):
 
 @bp.route("/quarantine/<quarantine_id>/delete", methods=["POST"])
 def delete_quarantine(quarantine_id):
-    q_resp = requests.get(f"{QUARANTINE_ITEMS_SERVICE_URL}/quarantine/{quarantine_id}")
+    auth_headers = forwarded_auth_headers(request)
+    q_resp = requests.get(f"{QUARANTINE_ITEMS_SERVICE_URL}/quarantine/{quarantine_id}", headers=auth_headers)
     if q_resp.status_code == 404:
         return jsonify({"error": "quarantine item not found"}), 404
     if q_resp.status_code != 200:
@@ -127,6 +139,7 @@ def delete_quarantine(quarantine_id):
     patch_resp = requests.patch(
         f"{QUARANTINE_ITEMS_SERVICE_URL}/quarantine/{quarantine_id}",
         json={"state": "deleted"},
+        headers=auth_headers,
     )
     if patch_resp.status_code != 200:
         return jsonify({"error": "failed to delete quarantine item"}), 502

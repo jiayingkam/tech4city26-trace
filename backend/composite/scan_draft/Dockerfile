@@ -8,10 +8,11 @@ WORKDIR /service
 RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY composite/scan_draft/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app/ app/
+COPY shared/trace_auth trace_auth/
+COPY composite/scan_draft/app/ app/
 
 ENV FLASK_APP=app.app:create_app
 ENV FLASK_RUN_HOST=0.0.0.0

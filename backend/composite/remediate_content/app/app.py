@@ -4,6 +4,7 @@ from flask_cors import CORS
 from flask_swagger import swagger
 from flask_swagger_ui import get_swaggerui_blueprint
 from dotenv import load_dotenv
+from trace_auth import init_auth
 
 load_dotenv()
 
@@ -11,6 +12,7 @@ load_dotenv()
 def create_app() -> Flask:
     app = Flask(__name__)
     CORS(app, origins=environ.get("FRONTEND_ORIGIN", "http://localhost:3000").split(","))
+    init_auth(app)
 
     from .routes import remediate_bp
     app.register_blueprint(remediate_bp)

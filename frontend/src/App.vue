@@ -1,16 +1,17 @@
 <script setup>
 import { ref } from 'vue'
 import PhoneFrame from './components/PhoneFrame.vue'
+import LoginView from './views/LoginView.vue'
 import ComposeView from './views/ComposeView.vue'
 import ResultsView from './views/ResultsView.vue'
 import RemediationView from './views/RemediationView.vue'
 import QuarantineView from './views/QuarantineView.vue'
-import { uploadPost, processDraft, getDetections } from './api'
+import { uploadPost, processDraft, getDetections, getToken } from './api'
 
-// No auth yet (users service is still a stub) — every post shares this owner_id.
-const DEMO_OWNER_ID = 'demo-user'
-
-const step = ref(1) // 1 compose, 2 scanning, 3 results, 4 action, 5 error
+// 0 login, 1 compose, 2 scanning, 3 results, 4 action, 5 error — skip
+// straight past login if a token from earlier this tab session is still
+// around (sessionStorage, so a closed tab always lands back on login).
+const step = ref(getToken() ? 1 : 0)
 const photoPreviewUrl = ref(null)
 const detections = ref([])
 const draftId = ref(null)
@@ -36,7 +37,6 @@ async function handleShare(payload) {
 
   try {
     const draft = await uploadPost({
-      ownerId: DEMO_OWNER_ID,
       contentType: 'image',
       sourceApp: 'trace-web',
       caption: payload.caption,
@@ -86,8 +86,11 @@ function restart() {
   <div class="d-flex justify-content-center align-items-center min-vh-100 bg-light">
     <PhoneFrame>
 
+      <!-- Step 0: Login -->
+      <LoginView v-if="step === 0" @success="step = 1" />
+
       <!-- Step 1: Compose -->
-      <ComposeView v-if="step === 1" @share="handleShare" />
+      <ComposeView v-else-if="step === 1" @share="handleShare" />
 
       <!-- Step 2: Scanning -->
       <div v-else-if="step === 2" class="d-flex flex-column h-100 align-items-center justify-content-center text-center p-4">

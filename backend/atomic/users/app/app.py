@@ -6,6 +6,7 @@ from flask_swagger_ui import get_swaggerui_blueprint
 from dotenv import load_dotenv
 from .db import db
 from .db_retry import wait_for_db
+from trace_auth import init_auth
 
 load_dotenv()
 
@@ -31,9 +32,10 @@ def create_app() -> Flask:
         "pool_recycle": 280,
     }
     db.init_app(app)
+    init_auth(app, public_paths={"/signup", "/login"})
 
-    from .routes import bp
-    app.register_blueprint(bp)
+    from .routes import users_bp
+    app.register_blueprint(users_bp)
 
     with app.app_context():
         wait_for_db(db.engine)

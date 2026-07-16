@@ -4,10 +4,41 @@ const DETECTIONS_URL = import.meta.env.VITE_DETECTIONS_URL || 'http://localhost:
 const EDITS_URL = import.meta.env.VITE_EDITS_URL || 'http://localhost:5004'
 const REMEDIATE_CONTENT_URL = import.meta.env.VITE_REMEDIATE_CONTENT_URL || 'http://localhost:5011'
 const QUARANTINE_HIGH_RISK_URL = import.meta.env.VITE_QUARANTINE_HIGH_RISK_URL || 'http://localhost:5010'
+const USERS_URL = import.meta.env.VITE_USERS_URL || 'http://localhost:5001'
+
+// sessionStorage (not localStorage) so the token disappears when the tab
+// closes, rather than lingering on the device indefinitely — the closest
+// realistic match to "session" for a login that spans several backend
+// services on different origins, where a real browser cookie set by one of
+// them wouldn't be sent to the others anyway.
+const TOKEN_KEY = 'trace_token'
+
+export function getToken() {
+  return sessionStorage.getItem(TOKEN_KEY)
+}
+
+export function setToken(token) {
+  sessionStorage.setItem(TOKEN_KEY, token)
+}
+
+export function clearToken() {
+  sessionStorage.removeItem(TOKEN_KEY)
+}
+
+function authHeaders() {
+  const token = getToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
 
 async function parseOrThrow(res) {
   const data = await res.json()
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`)
+  if (!res.ok) {
+    // A stale/expired/garbage token reads the same everywhere: drop it so
+    // the app falls back to the login screen instead of repeating the same
+    // failed call.
+    if (res.status === 401) clearToken()
+    throw new Error(data.error || `Request failed (${res.status})`)
+  }
   return data
 }
 
@@ -19,11 +50,14 @@ async function parseOrThrow(res) {
 // less predictable default) so a stalled cold-starting request doesn't just
 // hang — we abort it and retry sooner instead.
 async function fetchWithRetry(url, options, { retries = 6, attemptTimeoutMs = 12000, delayMs = 4000, onRetry } = {}) {
+  // Every call goes through here, so this is the one place the token needs
+  // to be attached rather than at each of the many call sites below.
+  const mergedOptions = { ...options, headers: { ...authHeaders(), ...options?.headers } }
   for (let attempt = 0; ; attempt++) {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), attemptTimeoutMs)
     try {
-      return await fetch(url, { ...options, signal: controller.signal })
+      return await fetch(url, { ...mergedOptions, signal: controller.signal })
     } catch (err) {
       if (attempt >= retries) throw err
       onRetry?.(attempt + 1, retries)
@@ -34,9 +68,43 @@ async function fetchWithRetry(url, options, { retries = 6, attemptTimeoutMs = 12
   }
 }
 
-export async function uploadPost({ ownerId, contentType, sourceApp, caption, photoFile }, onRetry) {
+export async function login(email, password) {
+  const res = await fetchWithRetry(`${USERS_URL}/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  const data = await parseOrThrow(res)
+  setToken(data.token)
+  return data.user
+}
+
+export async function signup(email, password) {
+  const res = await fetchWithRetry(`${USERS_URL}/signup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  const data = await parseOrThrow(res)
+  setToken(data.token)
+  return data.user
+}
+
+export async function logout() {
+  try {
+    await fetchWithRetry(`${USERS_URL}/logout`, { method: 'POST' })
+  } finally {
+    // The token is discarded either way — logging out is meant to work even
+    // if the server call itself fails (e.g. already-expired token).
+    clearToken()
+  }
+}
+
+// owner_id is no longer sent — upload_post derives it from the caller's own
+// token now, so a client can't create a draft under someone else's identity
+// just by naming a different id.
+export async function uploadPost({ contentType, sourceApp, caption, photoFile }, onRetry) {
   const form = new FormData()
-  form.append('owner_id', ownerId)
   form.append('content_type', contentType)
   if (sourceApp) form.append('source_app', sourceApp)
   if (caption) form.append('text_content', caption)
@@ -63,6 +131,18 @@ export async function confirmRemediation(draftId) {
 
 export function downloadUrl(draftId) {
   return `${REMEDIATE_CONTENT_URL}/drafts/${draftId}/download`
+}
+
+// The download route is behind the same auth gate as everything else now,
+// so it can no longer be fetched with a bare, unauthenticated fetch() —
+// this wraps it the same way every other call in this file already is.
+export async function downloadRemediated(draftId) {
+  const res = await fetchWithRetry(downloadUrl(draftId), undefined)
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.error || `Request failed (${res.status})`)
+  }
+  return res.blob()
 }
 
 export async function revertEdit(editId) {

@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify
+from flask_jwt_extended import get_jwt_identity
 from .db import db
 from .models import ContentDrafts
 
@@ -29,6 +30,8 @@ def create_draft():
     error = _missing_required(data, ("owner_id", "content_type"))
     if error:
         return error
+    if data["owner_id"] != get_jwt_identity():
+        return jsonify({"error": "owner_id must match the authenticated user"}), 403
     if data["content_type"] not in VALID_CONTENT_TYPES:
         return jsonify({"error": "invalid content_type"}), 400
     draft = ContentDrafts(
@@ -48,11 +51,15 @@ def get_draft(draft_id):
     draft = db.session.get(ContentDrafts, draft_id)
     if draft is None:
         return jsonify({"error": "draft not found"}), 404
+    if draft.owner_id != get_jwt_identity():
+        return jsonify({"error": "forbidden"}), 403
     return jsonify(draft.to_dict()), 200
 
 
 @bp.route("/users/<owner_id>/drafts", methods=["GET"])
 def list_drafts_for_owner(owner_id):
+    if owner_id != get_jwt_identity():
+        return jsonify({"error": "forbidden"}), 403
     stmt = db.select(ContentDrafts).filter_by(owner_id=owner_id)
     drafts = db.session.scalars(stmt).all()
     return jsonify([d.to_dict() for d in drafts]), 200
@@ -63,6 +70,8 @@ def update_draft(draft_id):
     draft = db.session.get(ContentDrafts, draft_id)
     if draft is None:
         return jsonify({"error": "draft not found"}), 404
+    if draft.owner_id != get_jwt_identity():
+        return jsonify({"error": "forbidden"}), 403
     data, error = _json_body()
     if error:
         return error
@@ -79,6 +88,8 @@ def delete_draft(draft_id):
     draft = db.session.get(ContentDrafts, draft_id)
     if draft is None:
         return jsonify({"error": "draft not found"}), 404
+    if draft.owner_id != get_jwt_identity():
+        return jsonify({"error": "forbidden"}), 403
     db.session.delete(draft)
     db.session.commit()
     return "", 204
