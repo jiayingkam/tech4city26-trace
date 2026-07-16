@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify
+from flask_jwt_extended import get_jwt_identity
 from .db import db
 from .models import Edit
 
@@ -42,6 +43,8 @@ def create_edit():
         return jsonify({"error": "invalid edit_type"}), 400
     edit = Edit(
         draft_id=data["draft_id"],
+        owner_id=get_jwt_identity(),
+        detection_id=data.get("detection_id"),
         edit_type=data["edit_type"],
         region_affected=data.get("region_affected"),  # null for strips
     )
@@ -52,9 +55,9 @@ def create_edit():
 
 @edits_bp.route("/drafts/<draft_id>/edits", methods=["GET"])
 def list_edits(draft_id):
-    stmt = db.select(Edit).filter_by(draft_id=draft_id)
+    stmt = db.select(Edit).filter_by(draft_id=draft_id, owner_id=get_jwt_identity())
     edits = db.session.scalars(stmt).all()
-    
+
     return jsonify([e.to_dict() for e in edits]), 200
 
 
@@ -63,6 +66,8 @@ def get_edit(edit_id):
     edit = db.session.get(Edit, edit_id)
     if edit is None:
         return jsonify({"error": "edit not found"}), 404
+    if edit.owner_id != get_jwt_identity():
+        return jsonify({"error": "forbidden"}), 403
     return jsonify(edit.to_dict()), 200
 
 
@@ -71,6 +76,8 @@ def update_edit(edit_id):
     edit = db.session.get(Edit, edit_id)
     if edit is None:
         return jsonify({"error": "edit not found"}), 404
+    if edit.owner_id != get_jwt_identity():
+        return jsonify({"error": "forbidden"}), 403
     data, error = _json_body()
     if error:
         return error
@@ -97,7 +104,21 @@ def delete_edit(edit_id):
     edit = db.session.get(Edit, edit_id)
     if edit is None:
         return jsonify({"error": "edit not found"}), 404
+    if edit.owner_id != get_jwt_identity():
+        return jsonify({"error": "forbidden"}), 403
     db.session.delete(edit)
+    db.session.commit()
+    return "", 204
+
+
+# Bulk variant for cascading a whole draft's deletion (manage_history's
+# selective delete and retention sweep).
+@edits_bp.route("/drafts/<draft_id>/edits", methods=["DELETE"])
+def delete_edits_for_draft(draft_id):
+    stmt = db.select(Edit).filter_by(draft_id=draft_id, owner_id=get_jwt_identity())
+    edits = db.session.scalars(stmt).all()
+    for edit in edits:
+        db.session.delete(edit)
     db.session.commit()
     return "", 204
 

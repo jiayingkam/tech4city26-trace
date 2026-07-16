@@ -15,6 +15,20 @@ DETECTIONS_SERVICE_URL = os.environ.get("DETECTIONS_SERVICE_URL", "http://DETECT
 EDITS_SERVICE_URL = os.environ.get("EDITS_SERVICE_URL", "http://EDITS:5004")
 UPLOAD_POST_SERVICE_URL = os.environ.get("UPLOAD_POST_SERVICE_URL", "http://UPLOAD_POST:5014")
 
+
+def _set_detection_resolution(detection_id, resolution, auth_headers):
+    """Best-effort — a missing/failed PATCH here shouldn't block the edit
+    action itself (the edit's own status is the source of truth for what
+    actually got applied to the image; resolution is just a label for the
+    history menu built on top of it)."""
+    if not detection_id:
+        return
+    requests.patch(
+        f"{DETECTIONS_SERVICE_URL}/detections/{detection_id}",
+        json={"resolution": resolution},
+        headers=auth_headers,
+    )
+
 # Serializes the propose step per draft_id so two overlapping /remediate calls can't both create edits.
 _propose_locks = {}
 _propose_locks_guard = threading.Lock()
@@ -184,7 +198,12 @@ def remediate_content(draft_id):
                 proposed.append(existing)
                 continue
 
-            payload = {"draft_id": draft_id, "edit_type": edit_type, "region_affected": region}
+            payload = {
+                "draft_id": draft_id,
+                "edit_type": edit_type,
+                "region_affected": region,
+                "detection_id": d["detection_id"],
+            }
             edit_resp = requests.post(f"{EDITS_SERVICE_URL}/edits", json=payload, headers=auth_headers)
             if edit_resp.status_code != 201:
                 return jsonify({"error": "failed to create edit"}), 502
@@ -241,7 +260,9 @@ def confirm_remediation(draft_id):
         )
         if patch_resp.status_code != 200:
             return jsonify({"error": "failed to update edit"}), 502
-        confirmed.append(patch_resp.json())
+        confirmed_edit = patch_resp.json()
+        confirmed.append(confirmed_edit)
+        _set_detection_resolution(confirmed_edit.get("detection_id"), "accepted", auth_headers)
 
     # rebuild from the original using every currently-applied edit, not just
     # the ones confirmed this call, so repeated confirm/revert/restore cycles
@@ -278,6 +299,25 @@ def download_remediated(draft_id):
     return send_file(path, as_attachment=True, download_name=f"trace_clean_{filename}")
 
 
+@remediate_bp.route("/drafts/<draft_id>/remediated", methods=["DELETE"])
+def delete_remediated(draft_id):
+    """Removes the baked-out clean file for a draft being erased from history
+    (manage_history's selective delete / retention sweep). Ownership is
+    enforced by _get_draft's call to content_drafts, same as every other
+    route here. Missing/never-remediated is treated as success — the end
+    state (no file) is what the caller wants either way."""
+    draft, error = _get_draft(draft_id)
+    if error:
+        return error
+    storage_path = draft.get("storage_path")
+    if storage_path:
+        filename = f"{draft_id}_{os.path.basename(storage_path)}"
+        path = os.path.join(OUTPUT_DIR, filename)
+        if os.path.exists(path):
+            os.remove(path)
+    return "", 204
+
+
 @remediate_bp.route("/edits/<edit_id>/revert", methods=["POST"])
 def revert_edit(edit_id):
     auth_headers = forwarded_auth_headers(request)
@@ -294,6 +334,9 @@ def revert_edit(edit_id):
     )
     if patch_resp.status_code != 200:
         return jsonify({"error": "failed to revert edit"}), 502
+    # Un-resolved, not "rejected" — skipping a fix isn't the same as dismissing
+    # the underlying risk as a false positive; it just hasn't been dealt with.
+    _set_detection_resolution(edit.get("detection_id"), None, auth_headers)
 
     # only the pixel-baked ("applied") edits affect the served file — undoing
     # a still-pending (not yet confirmed) edit has nothing to regenerate

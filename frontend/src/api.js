@@ -5,6 +5,7 @@ const EDITS_URL = import.meta.env.VITE_EDITS_URL || 'http://localhost:5004'
 const REMEDIATE_CONTENT_URL = import.meta.env.VITE_REMEDIATE_CONTENT_URL || 'http://localhost:5011'
 const QUARANTINE_HIGH_RISK_URL = import.meta.env.VITE_QUARANTINE_HIGH_RISK_URL || 'http://localhost:5010'
 const USERS_URL = import.meta.env.VITE_USERS_URL || 'http://localhost:5001'
+const MANAGE_HISTORY_URL = import.meta.env.VITE_MANAGE_HISTORY_URL || 'http://localhost:5015'
 
 // sessionStorage (not localStorage) so the token disappears when the tab
 // closes, rather than lingering on the device indefinitely — the closest
@@ -172,11 +173,9 @@ export async function updateEditRegion(editId, region) {
 // For a spot the scanner missed entirely: records a Detection (so there's
 // still an audit trail of what got flagged and why, same as every
 // scanner-found one, just with model_version "manual") and then an Edit
-// pointing at the same region, mirroring exactly what remediate_content's
-// propose step already does per-detection — just triggered from the
-// frontend instead of a scanner. Returns the created edit plus the
-// detection's id (the Edit model itself has no link back to it) so the
-// caller can rename the area later via renameDetection.
+// pointing at the same region and detection_id, mirroring exactly what
+// remediate_content's propose step already does per-detection — just
+// triggered from the frontend instead of a scanner.
 export async function addManualEdit(draftId, region) {
   const detection = await parseOrThrow(
     await fetchWithRetry(`${DETECTIONS_URL}/detections`, {
@@ -196,10 +195,14 @@ export async function addManualEdit(draftId, region) {
   const res = await fetchWithRetry(`${EDITS_URL}/edits`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ draft_id: draftId, edit_type: 'blur', region_affected: region }),
+    body: JSON.stringify({
+      draft_id: draftId,
+      edit_type: 'blur',
+      region_affected: region,
+      detection_id: detection.detection_id,
+    }),
   })
-  const edit = await parseOrThrow(res)
-  return { ...edit, detection_id: detection.detection_id }
+  return parseOrThrow(res)
 }
 
 // Renames a self-marked area by updating the underlying Detection's detail
@@ -233,6 +236,50 @@ export async function editQuarantine(quarantineId) {
 
 export async function deleteQuarantine(quarantineId) {
   const res = await fetchWithRetry(`${QUARANTINE_HIGH_RISK_URL}/quarantine/${quarantineId}/delete`, { method: 'POST' })
+  return parseOrThrow(res)
+}
+
+export async function getMe() {
+  const res = await fetchWithRetry(`${USERS_URL}/me`)
+  return parseOrThrow(res)
+}
+
+export async function updateRetentionMode(userId, retentionMode) {
+  const res = await fetchWithRetry(`${USERS_URL}/users/${userId}/settings`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ retention_mode: retentionMode }),
+  })
+  return parseOrThrow(res)
+}
+
+// filter is 'all' | 'accepted' | 'rejected' — the hamburger menu's three
+// detection tabs. Quarantined Items is its own separate tab/call below
+// rather than a fourth filter value here, since quarantine items aren't
+// detections.
+export async function getHistory(filter = 'all') {
+  const res = await fetchWithRetry(`${MANAGE_HISTORY_URL}/history?filter=${filter}`)
+  return parseOrThrow(res)
+}
+
+export async function getHistoryQuarantine() {
+  const res = await fetchWithRetry(`${MANAGE_HISTORY_URL}/history/quarantine`)
+  return parseOrThrow(res)
+}
+
+// A mixed batch of whatever's currently selected/checked across the
+// History screen's tabs — "select all" is just the frontend sending every
+// currently-visible id in the relevant array.
+export async function deleteHistoryItems({ draftIds = [], detectionIds = [], quarantineIds = [] }) {
+  const res = await fetchWithRetry(`${MANAGE_HISTORY_URL}/history/delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      draft_ids: draftIds,
+      detection_ids: detectionIds,
+      quarantine_ids: quarantineIds,
+    }),
+  })
   return parseOrThrow(res)
 }
 

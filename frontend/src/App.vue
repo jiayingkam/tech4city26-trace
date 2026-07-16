@@ -1,12 +1,15 @@
 <script setup>
 import { ref } from 'vue'
 import PhoneFrame from './components/PhoneFrame.vue'
+import HamburgerMenu from './components/HamburgerMenu.vue'
 import LoginView from './views/LoginView.vue'
 import ComposeView from './views/ComposeView.vue'
 import ResultsView from './views/ResultsView.vue'
 import RemediationView from './views/RemediationView.vue'
 import QuarantineView from './views/QuarantineView.vue'
-import { uploadPost, processDraft, getDetections, getToken } from './api'
+import HistoryView from './views/HistoryView.vue'
+import SettingsView from './views/SettingsView.vue'
+import { uploadPost, processDraft, getDetections, getToken, getMe, logout as apiLogout } from './api'
 
 // 0 login, 1 compose, 2 scanning, 3 results, 4 action, 5 error — skip
 // straight past login if a token from earlier this tab session is still
@@ -22,6 +25,32 @@ const activeRemediation = ref(null)
 const errorMessage = ref('')
 // Set while a request is being retried after a network-level failure.
 const wakingUp = ref(false)
+
+// The hamburger menu (History/Settings) sits alongside the compose flow
+// rather than inside its step numbering — reachable from any step once
+// logged in, and returning to 'app' resumes wherever the step flow was.
+const screen = ref('app')
+const settingsUser = ref(null)
+
+async function openSettings() {
+  errorMessage.value = ''
+  try {
+    settingsUser.value = await getMe()
+    screen.value = 'settings'
+  } catch (err) {
+    // screen stays 'app', so route through the existing step=5 error
+    // display rather than a message with nowhere to render.
+    errorMessage.value = err.message || 'Could not load your settings.'
+    step.value = 5
+  }
+}
+
+async function handleLogout() {
+  await apiLogout()
+  screen.value = 'app'
+  restart()
+  step.value = 0
+}
 
 function onRetry() {
   wakingUp.value = true
@@ -86,8 +115,24 @@ function restart() {
   <div class="d-flex justify-content-center align-items-center min-vh-100 bg-light">
     <PhoneFrame>
 
+      <HamburgerMenu
+        v-if="step !== 0 && screen === 'app'"
+        @history="screen = 'history'"
+        @settings="openSettings"
+        @logout="handleLogout"
+      />
+
+      <!-- Hamburger menu: History / Settings -->
+      <HistoryView v-if="screen === 'history'" @back="screen = 'app'" />
+      <SettingsView
+        v-else-if="screen === 'settings' && settingsUser"
+        :user="settingsUser"
+        @updated="settingsUser = $event"
+        @back="screen = 'app'"
+      />
+
       <!-- Step 0: Login -->
-      <LoginView v-if="step === 0" @success="step = 1" />
+      <LoginView v-else-if="step === 0" @success="step = 1" />
 
       <!-- Step 1: Compose -->
       <ComposeView v-else-if="step === 1" @share="handleShare" />

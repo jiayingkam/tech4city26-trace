@@ -7,6 +7,8 @@ class Detection(db.Model):
 
     detection_id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     draft_id = db.Column(db.String(36), nullable=False, index=True) #atomic service should not have foreign keys
+    owner_id = db.Column(db.String(36), nullable=False, index=True) # denormalized from content_drafts at creation time — lets this service check ownership locally instead of calling back to content_drafts on every request
+    resolution = db.Column(db.String, nullable=True)             # null (pending) | "accepted" | "rejected"
     category = db.Column(db.String, nullable=False)              # face|location|document|metadata|contact|financial
     source_type = db.Column(db.String(10), nullable=False)       # "text" | "image" | "video" — which scanner found this
     exposure_score = db.Column(db.Integer, nullable=False)       # 1–5
@@ -21,6 +23,8 @@ class Detection(db.Model):
         return {
             "detection_id": self.detection_id,
             "draft_id": self.draft_id,
+            "owner_id": self.owner_id,
+            "resolution": self.resolution,
             "category": self.category,
             "source_type": self.source_type,
             "exposure_score": self.exposure_score,

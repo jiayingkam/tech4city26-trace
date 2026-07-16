@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify
+from flask_jwt_extended import get_jwt_identity
 from .db import db
 from .models import Detection
 
@@ -6,6 +7,7 @@ detections_bp = Blueprint("detections", __name__)
 
 VALID_CATEGORIES = ("face", "location", "document", "metadata", "contact", "financial", "credentials")
 VALID_SOURCE_TYPES = ("text", "image", "video")
+VALID_RESOLUTIONS = ("accepted", "rejected")
 
 
 def _json_body():
@@ -39,6 +41,9 @@ def create_detection():
         return jsonify({"error": "exposure_score must be an integer from 1 to 5"}), 400
     detection = Detection(
         draft_id=data["draft_id"],
+        # Stamped from the caller's own token, same as content_drafts' owner_id
+        # — never trusted from the request body.
+        owner_id=get_jwt_identity(),
         category=data["category"],
         source_type=data["source_type"],
         exposure_score=data["exposure_score"],
@@ -54,9 +59,13 @@ def create_detection():
 
 @detections_bp.route("/drafts/<draft_id>/detections", methods=["GET"])
 def list_detections(draft_id):
-    stmt = db.select(Detection).filter_by(draft_id=draft_id)
+    # Filtering by owner_id too (not just draft_id) rather than fetching then
+    # checking: a mismatch here just means "not your draft", which reads the
+    # same to the caller as "no detections yet" — nothing to distinguish or
+    # leak either way.
+    stmt = db.select(Detection).filter_by(draft_id=draft_id, owner_id=get_jwt_identity())
     detections = db.session.scalars(stmt).all()
-    
+
     return jsonify([d.to_dict() for d in detections]), 200
 
 
@@ -65,6 +74,8 @@ def get_detection(detection_id):
     detection = db.session.get(Detection, detection_id)
     if detection is None:
         return jsonify({"error": "detection not found"}), 404
+    if detection.owner_id != get_jwt_identity():
+        return jsonify({"error": "forbidden"}), 403
     return jsonify(detection.to_dict()), 200
 
 
@@ -73,20 +84,30 @@ def update_detection(detection_id):
     detection = db.session.get(Detection, detection_id)
     if detection is None:
         return jsonify({"error": "detection not found"}), 404
+    if detection.owner_id != get_jwt_identity():
+        return jsonify({"error": "forbidden"}), 403
     data, error = _json_body()
     if error:
         return error
 
-    if "detail" not in data:
-        return jsonify({"error": "must provide detail"}), 400
+    if "detail" not in data and "resolution" not in data:
+        return jsonify({"error": "must provide detail and/or resolution"}), 400
 
-    detail = data["detail"]
-    if not isinstance(detail, str) or not detail.strip():
-        return jsonify({"error": "detail must be a non-empty string"}), 400
-    if len(detail) > 255:
-        return jsonify({"error": "detail must be 255 characters or fewer"}), 400
+    if "detail" in data:
+        detail = data["detail"]
+        if not isinstance(detail, str) or not detail.strip():
+            return jsonify({"error": "detail must be a non-empty string"}), 400
+        if len(detail) > 255:
+            return jsonify({"error": "detail must be 255 characters or fewer"}), 400
+        detection.detail = detail.strip()
 
-    detection.detail = detail.strip()
+    if "resolution" in data:
+        resolution = data["resolution"]
+        # null clears it back to "pending" — e.g. restoring a reverted edit.
+        if resolution is not None and resolution not in VALID_RESOLUTIONS:
+            return jsonify({"error": "invalid resolution"}), 400
+        detection.resolution = resolution
+
     db.session.commit()
     return jsonify(detection.to_dict()), 200
 
@@ -96,7 +117,22 @@ def delete_detection(detection_id):
     detection = db.session.get(Detection, detection_id)
     if detection is None:
         return jsonify({"error": "detection not found"}), 404
+    if detection.owner_id != get_jwt_identity():
+        return jsonify({"error": "forbidden"}), 403
     db.session.delete(detection)
+    db.session.commit()
+    return "", 204
+
+
+# Bulk variant for cascading a whole draft's deletion (manage_history's
+# selective delete and retention sweep) — avoids N individual DELETE calls
+# for a draft with many flagged detections.
+@detections_bp.route("/drafts/<draft_id>/detections", methods=["DELETE"])
+def delete_detections_for_draft(draft_id):
+    stmt = db.select(Detection).filter_by(draft_id=draft_id, owner_id=get_jwt_identity())
+    detections = db.session.scalars(stmt).all()
+    for detection in detections:
+        db.session.delete(detection)
     db.session.commit()
     return "", 204
 

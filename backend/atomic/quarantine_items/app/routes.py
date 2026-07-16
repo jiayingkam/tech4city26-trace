@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify
+from flask_jwt_extended import get_jwt_identity
 from datetime import datetime, timezone, timedelta
 from .db import db
 from .models import QuarantineItem
@@ -35,6 +36,7 @@ def create_quarantine():
         return jsonify({"error": "cooldown_minutes must be a positive integer"}), 400
     item = QuarantineItem(
         draft_id=data["draft_id"],
+        owner_id=get_jwt_identity(),
         reason=data["reason"],
         cooldown_expiry=datetime.now(timezone.utc) + timedelta(minutes=minutes),
     )
@@ -46,7 +48,7 @@ def create_quarantine():
 @quarantine_bp.route("/drafts/<draft_id>/quarantine", methods=["GET"])
 def list_quarantine(draft_id):
     # No extra sqlalchemy import needed if you use db.select!
-    stmt = db.select(QuarantineItem).filter_by(draft_id=draft_id)
+    stmt = db.select(QuarantineItem).filter_by(draft_id=draft_id, owner_id=get_jwt_identity())
     items = db.session.scalars(stmt).all()
     return jsonify([i.to_dict() for i in items]), 200
 
@@ -56,6 +58,8 @@ def get_quarantine(quarantine_id):
     item = db.session.get(QuarantineItem, quarantine_id)
     if item is None:
         return jsonify({"error": "quarantine item not found"}), 404
+    if item.owner_id != get_jwt_identity():
+        return jsonify({"error": "forbidden"}), 403
     return jsonify(item.to_dict()), 200
 
 
@@ -64,6 +68,8 @@ def cooldown_status(quarantine_id):
     item = db.session.get(QuarantineItem, quarantine_id)
     if item is None:
         return jsonify({"error": "quarantine item not found"}), 404
+    if item.owner_id != get_jwt_identity():
+        return jsonify({"error": "forbidden"}), 403
     now = datetime.now(timezone.utc)
     remaining = (item.cooldown_expiry - now).total_seconds()
     return jsonify({
@@ -78,6 +84,8 @@ def update_quarantine(quarantine_id):
     item = db.session.get(QuarantineItem, quarantine_id)
     if item is None:
         return jsonify({"error": "quarantine item not found"}), 404
+    if item.owner_id != get_jwt_identity():
+        return jsonify({"error": "forbidden"}), 403
     data, error = _json_body()
     if error:
         return error
@@ -94,7 +102,21 @@ def delete_quarantine(quarantine_id):
     item = db.session.get(QuarantineItem, quarantine_id)
     if item is None:
         return jsonify({"error": "quarantine item not found"}), 404
+    if item.owner_id != get_jwt_identity():
+        return jsonify({"error": "forbidden"}), 403
     db.session.delete(item)
+    db.session.commit()
+    return "", 204
+
+
+# Bulk variant for cascading a whole draft's deletion (manage_history's
+# selective delete and retention sweep).
+@quarantine_bp.route("/drafts/<draft_id>/quarantine", methods=["DELETE"])
+def delete_quarantine_for_draft(draft_id):
+    stmt = db.select(QuarantineItem).filter_by(draft_id=draft_id, owner_id=get_jwt_identity())
+    items = db.session.scalars(stmt).all()
+    for item in items:
+        db.session.delete(item)
     db.session.commit()
     return "", 204
 

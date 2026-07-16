@@ -7,6 +7,7 @@ class QuarantineItem(db.Model):
 
     quarantine_id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     draft_id = db.Column(db.String(36), nullable=False, index=True)      # atomic service should not have foreign keys
+    owner_id = db.Column(db.String(36), nullable=False, index=True)      # denormalized from content_drafts, same as detections.owner_id
     reason = db.Column(db.String, nullable=False)                    # plain-language: "Visible house number + GPS location"
     cooldown_expiry = db.Column(db.DateTime(timezone=True), nullable=False)
     state = db.Column(db.String, nullable=False, default="held")     # "held" | "accepted" | "edited" | "deleted"
@@ -17,6 +18,7 @@ class QuarantineItem(db.Model):
         return {
             "quarantine_id": self.quarantine_id,
             "draft_id": self.draft_id,
+            "owner_id": self.owner_id,
             "reason": self.reason,
             "cooldown_expiry": self.cooldown_expiry.isoformat() if self.cooldown_expiry else None,
             "state": self.state,

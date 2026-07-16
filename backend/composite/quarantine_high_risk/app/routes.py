@@ -17,6 +17,22 @@ def _build_reason(detections):
     return "High-risk content detected: " + ", ".join(categories)
 
 
+def _set_high_risk_resolutions(draft_id, resolution, auth_headers):
+    """Quarantine holds are decided per-draft, not per-detection, so release/
+    delete resolve every detection that caused the hold (exposure >= 4) in
+    one go — best-effort, same as remediate_content's equivalent helper."""
+    resp = requests.get(f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections", headers=auth_headers)
+    if resp.status_code != 200:
+        return
+    for d in resp.json():
+        if d["exposure_score"] >= 4:
+            requests.patch(
+                f"{DETECTIONS_SERVICE_URL}/detections/{d['detection_id']}",
+                json={"resolution": resolution},
+                headers=auth_headers,
+            )
+
+
 @bp.route("/drafts/<draft_id>/quarantine", methods=["POST"])
 def quarantine_draft(draft_id):
     auth_headers = forwarded_auth_headers(request)
@@ -64,13 +80,18 @@ def get_draft_quarantine(draft_id):
 @bp.route("/quarantine/<quarantine_id>/release", methods=["POST"])
 def release_quarantine(quarantine_id):
     auth_headers = forwarded_auth_headers(request)
+    q_resp = requests.get(f"{QUARANTINE_ITEMS_SERVICE_URL}/quarantine/{quarantine_id}", headers=auth_headers)
+    if q_resp.status_code == 404:
+        return jsonify({"error": "quarantine item not found"}), 404
+    if q_resp.status_code != 200:
+        return jsonify({"error": "failed to fetch quarantine item"}), 502
+    draft_id = q_resp.json()["draft_id"]
+
     # check cooldown before allowing release
     cooldown_resp = requests.get(
         f"{QUARANTINE_ITEMS_SERVICE_URL}/quarantine/{quarantine_id}/cooldown",
         headers=auth_headers,
     )
-    if cooldown_resp.status_code == 404:
-        return jsonify({"error": "quarantine item not found"}), 404
     if cooldown_resp.status_code != 200:
         return jsonify({"error": "failed to fetch cooldown status"}), 502
 
@@ -88,6 +109,9 @@ def release_quarantine(quarantine_id):
     )
     if patch_resp.status_code != 200:
         return jsonify({"error": "failed to release quarantine item"}), 502
+
+    # posted as-is despite the warning — the flagged risk went out uncorrected.
+    _set_high_risk_resolutions(draft_id, "accepted", auth_headers)
 
     return jsonify(patch_resp.json()), 200
 
@@ -135,6 +159,7 @@ def delete_quarantine(quarantine_id):
         return jsonify({"error": "quarantine item not found"}), 404
     if q_resp.status_code != 200:
         return jsonify({"error": "failed to fetch quarantine item"}), 502
+    draft_id = q_resp.json()["draft_id"]
 
     patch_resp = requests.patch(
         f"{QUARANTINE_ITEMS_SERVICE_URL}/quarantine/{quarantine_id}",
@@ -143,6 +168,10 @@ def delete_quarantine(quarantine_id):
     )
     if patch_resp.status_code != 200:
         return jsonify({"error": "failed to delete quarantine item"}), 502
+
+    # the post itself was discarded rather than shared — the flagged risk
+    # never went out.
+    _set_high_risk_resolutions(draft_id, "rejected", auth_headers)
 
     return jsonify(patch_resp.json()), 200
 

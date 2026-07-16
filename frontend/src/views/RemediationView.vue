@@ -21,24 +21,30 @@ defineEmits(['restart'])
 const proposedEdits = ref((props.remediation.proposed_edits || []).map((e) => ({ ...e })))
 const redaction = props.remediation.text_redaction
 
-// Edits don't carry the scanner's own description of what they're for (no
-// detail field, no link back to the Detection they were proposed from —
-// see remediate_content's propose step, which only copies the region) so
-// without this a box no bigger than a dot has no way to tell the user what
-// it actually is beyond a bare number. Matched once, up front, by exact
-// region — a plain object rather than a computed since it only needs the
-// edits' original (pre-drag) regions, taken as they arrived as props.
-// reactive (not a plain object) because renaming a self-marked area below
-// overwrites an entry after mount and editLabel needs to pick that up.
+// Edits don't carry their own description of what they're for (just a
+// region and a type) — this looks up each edit's own detail via its
+// detection_id, the real link the backend now stores (remediate_content's
+// propose step sets it, and addManualEdit's created edit carries the
+// detection it was made for). reactive (not a plain object) because
+// renaming a self-marked area below overwrites an entry after mount and
+// editLabel needs to pick that up.
 const detailByEditId = reactive({})
 for (const edit of proposedEdits.value) {
-  const region = edit.region_affected
-  if (!region) continue
-  const match = props.detections.find((d) => {
-    const r = d.bounding_region
-    return r && r.x === region.x && r.y === region.y && r.w === region.w && r.h === region.h
-  })
+  const match = props.detections.find((d) => d.detection_id === edit.detection_id)
   if (match?.detail) detailByEditId[edit.edit_id] = match.detail
+}
+
+// Renaming only makes sense for self-marked areas (see addManualEdit) —
+// scanner-found ones already have a detail from the scan itself. Every edit
+// now carries a detection_id either way, so this can't just check for its
+// presence — it checks the underlying detection's model_version instead,
+// falling back to this session's own record of what it just created for
+// edits added after mount (those never appear in the static `detections`
+// prop, which only reflects what existed when this view opened).
+const manualEditIds = reactive(new Set())
+function isManualEdit(edit) {
+  if (manualEditIds.has(edit.edit_id)) return true
+  return props.detections.find((d) => d.detection_id === edit.detection_id)?.model_version === 'manual'
 }
 
 // Text-only leaks (a caption fix with no photo edit) have nothing for
@@ -247,6 +253,7 @@ async function onDragEnd() {
     if (!region || region.w < MIN_BOX_SIZE || region.h < MIN_BOX_SIZE) return
     try {
       const edit = await addManualEdit(props.draftId, region)
+      manualEditIds.add(edit.edit_id)
       proposedEdits.value.push({ ...edit })
       drawPreview()
     } catch (err) {
@@ -404,7 +411,7 @@ async function copySuggested() {
           <label v-else class="form-check-label small" :for="edit.edit_id">
             {{ editLabel(edit) }}
             <button
-              v-if="edit.detection_id && !confirmed"
+              v-if="isManualEdit(edit) && !confirmed"
               type="button"
               class="btn btn-link btn-sm p-0 ms-1 align-baseline"
               @click.stop.prevent="startRename(edit)"

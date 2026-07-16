@@ -134,6 +134,32 @@ def get_original(draft_id):
     return send_file(absolute_path)
 
 
+@bp.route("/drafts/<draft_id>/original", methods=["DELETE"])
+def delete_original(draft_id):
+    """Removes the stored original file for a draft that's being erased from
+    history (manage_history's selective delete / retention sweep). Only this
+    service ever writes that file, so only it can remove it — same reasoning
+    as get_original above. Ownership is enforced by content_drafts' own GET,
+    same as get_original; missing/already-gone is treated as success since
+    the end state (no file) is what the caller wants either way."""
+    draft_resp = requests.get(
+        f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}",
+        headers=forwarded_auth_headers(request),
+    )
+    if draft_resp.status_code == 404:
+        return jsonify({"error": "draft not found"}), 404
+    if draft_resp.status_code != 200:
+        return jsonify({"error": "failed to fetch draft"}), 502
+
+    storage_path = draft_resp.json().get("storage_path")
+    if storage_path:
+        absolute_path = os.path.join(SERVICE_ROOT, storage_path)
+        if os.path.exists(absolute_path):
+            os.remove(absolute_path)
+
+    return "", 204
+
+
 # In professional setups, a Load Balancer and/or caller pings this /health URL every few seconds.
 # If your code gets stuck in an infinite loop during a request,
 # it will stop responding to /health.

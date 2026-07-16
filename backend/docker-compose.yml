@@ -32,6 +32,12 @@ services:
     depends_on:
       azure_db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   content_drafts:
     platform: linux/amd64
@@ -122,6 +128,7 @@ services:
       dockerfile: composite/compile_family_digest/Dockerfile
     ports:
       - "5007:5007"
+    env_file: ../.env
 
   detect_mosaic_risk:
     build:
@@ -154,6 +161,7 @@ services:
       dockerfile: composite/quarantine_high_risk/Dockerfile
     ports:
       - "5010:5010"
+    env_file: ../.env
     depends_on:
       detections:
         condition: service_healthy
@@ -220,6 +228,7 @@ services:
       dockerfile: composite/update_exposure_profile/Dockerfile
     ports:
       - "5013:5013"
+    env_file: ../.env
 
   upload_post:
     build:
@@ -227,6 +236,7 @@ services:
       dockerfile: composite/upload_post/Dockerfile
     ports:
       - "5014:5014"
+    env_file: ../.env
     volumes:
       - draft_storage:/service/storage
     depends_on:
@@ -234,6 +244,35 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5014/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  manage_history:
+    build:
+      context: .
+      dockerfile: composite/manage_history/Dockerfile
+    ports:
+      - "5015:5015"
+    env_file: ../.env
+    depends_on:
+      content_drafts:
+        condition: service_healthy
+      detections:
+        condition: service_healthy
+      edits:
+        condition: service_healthy
+      quarantine_items:
+        condition: service_healthy
+      users:
+        condition: service_healthy
+      upload_post:
+        condition: service_healthy
+      remediate_content:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5015/health')\""]
       interval: 10s
       timeout: 5s
       retries: 5
