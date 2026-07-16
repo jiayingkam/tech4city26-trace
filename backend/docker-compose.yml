@@ -115,6 +115,12 @@ services:
     build: ./composite/detect_mosaic_risk
     ports:
       - "5008:5008"
+    env_file: ../.env
+    depends_on:
+      content_drafts:
+        condition: service_healthy
+      detections:
+        condition: service_healthy
 
   generate_teachable_moment:
     build: ./composite/generate_teachable_moment
