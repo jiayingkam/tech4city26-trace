@@ -45,27 +45,6 @@ CLOUD_VIDEO_INTELLIGENCE_KEY=<your-google-cloud-video-intelligence-api-key>
 
 `CLOUD_VISION_KEY` is a plain Google Cloud API key (Cloud Vision API enabled on the project) — used by `scan_draft` for OCR text/location detection in photos.
 
-### ODBC Driver 18 for SQL Server
-
-Atomic services connect to Azure SQL via ODBC. Install the driver on your machine if running services locally (Docker handles this automatically).
-
-**macOS**
-
-```bash
-brew tap microsoft/mssql-release https://github.com/Microsoft/homebrew-mssql-release
-brew update
-brew install microsoft/mssql-release/msodbcsql18
-```
-
-**Windows**
-
-Download and run the installer from Microsoft:
-[https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server](https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server)
-
-Select **ODBC Driver 18 for SQL Server** for your Windows architecture (x64 recommended).
-
----
-
 ## Running the Program
 
 ### With Docker (recommended)
