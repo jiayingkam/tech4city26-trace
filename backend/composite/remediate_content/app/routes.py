@@ -166,22 +166,25 @@ def remediate_content(draft_id):
     # (e.g. a slow scan makes the client's request time out and retry while
     # the server is still finishing — see fetchWithRetry in the frontend) so
     # it has to be idempotent: re-propose must reuse an edit that already
-    # matches a detection's region rather than creating a second one, or a
-    # retried call silently doubles every edit (harmless while both copies
-    # sit at the same region, but very visible once one of them is dragged
-    # to a new spot and the other, hidden one is still applied at confirm).
+    # exists for a given detection rather than creating a second one.
+    #
+    # Matched by detection_id, not region: region can't be trusted as a
+    # stable identity — the user can drag a proposed box to a new spot
+    # (updateEditRegion), and matching on the now-changed region would miss
+    # the existing edit entirely and silently create a duplicate for the
+    # same detection. detection_id is the one thing that never changes.
     auth_headers = forwarded_auth_headers(request)
     with _draft_propose_lock(draft_id):
         existing_resp = requests.get(f"{EDITS_SERVICE_URL}/drafts/{draft_id}/edits", headers=auth_headers)
         if existing_resp.status_code != 200:
             return jsonify({"error": "failed to fetch existing edits"}), 502
-        existing_by_key = {}
+        existing_by_detection = {}
         for e in existing_resp.json():
-            region = e.get("region_affected")
-            key = (e["edit_type"], tuple(sorted(region.items())) if region else None)
-            existing_by_key.setdefault(key, e)
+            if e.get("detection_id"):
+                existing_by_detection.setdefault(e["detection_id"], e)
 
         proposed = []
+        seen_edit_ids = set()
         for d in image_detections:
             # Keyed off category, not region presence: metadata findings never
             # carry a region by design (nothing to blur, only strip), but an
@@ -191,11 +194,18 @@ def remediate_content(draft_id):
             # "strip metadata".
             edit_type = "metadata_strip" if d.get("category") == "metadata" else "blur"
             region = d.get("bounding_region")
-            key = (edit_type, tuple(sorted(region.items())) if region else None)
 
-            existing = existing_by_key.get(key)
+            existing = existing_by_detection.get(d["detection_id"])
             if existing:
-                proposed.append(existing)
+                # Two detections can legitimately point at the same edit_id
+                # here (e.g. a duplicate-scan race upstream produced two
+                # near-identical detections before that was fixed) — only
+                # surface each edit once regardless of how many detections
+                # map to it, so the response list itself is never a source
+                # of duplicate rows in the UI.
+                if existing["edit_id"] not in seen_edit_ids:
+                    proposed.append(existing)
+                    seen_edit_ids.add(existing["edit_id"])
                 continue
 
             payload = {
@@ -209,7 +219,8 @@ def remediate_content(draft_id):
                 return jsonify({"error": "failed to create edit"}), 502
             created = edit_resp.json()
             proposed.append(created)
-            existing_by_key[key] = created
+            seen_edit_ids.add(created["edit_id"])
+            existing_by_detection[d["detection_id"]] = created
 
     # 3. for text leaks, generate a redacted caption the user can copy-paste
     # straight over their original — no manual editing required

@@ -1,5 +1,6 @@
 import os
 import tempfile
+import threading
 import requests
 from flask import Blueprint, request, jsonify
 
@@ -16,6 +17,20 @@ DETECTIONS_SERVICE_URL = os.environ.get("DETECTIONS_SERVICE_URL", "http://DETECT
 QUARANTINE_HIGH_RISK_SERVICE_URL = os.environ.get("QUARANTINE_HIGH_RISK_SERVICE_URL", "http://QUARANTINE_HIGH_RISK:5010")
 REMEDIATE_CONTENT_SERVICE_URL = os.environ.get("REMEDIATE_CONTENT_SERVICE_URL", "http://REMEDIATE_CONTENT:5011")
 UPLOAD_POST_SERVICE_URL = os.environ.get("UPLOAD_POST_SERVICE_URL", "http://UPLOAD_POST:5014")
+
+# Serializes the "scan if nothing's there yet" check per draft_id — mirrors
+# remediate_content's _draft_propose_lock, which guards the analogous race
+# there. Without this, a slow scan (real OCR/vision/LLM calls easily exceed
+# the frontend's retry timeout) lets a retried /process request see "no
+# detections yet" and run a second full scan concurrently with the first,
+# writing a duplicate set of findings for the same image.
+_scan_locks = {}
+_scan_locks_guard = threading.Lock()
+
+
+def _draft_scan_lock(draft_id):
+    with _scan_locks_guard:
+        return _scan_locks.setdefault(draft_id, threading.Lock())
 
 
 def _fetch_original_to_tempfile(draft_id, storage_path):
@@ -95,23 +110,29 @@ def scan_draft_endpoint(draft_id):
 @bp.route("/drafts/<draft_id>/process", methods=["POST"])
 def process_draft(draft_id):
     auth_headers = forwarded_auth_headers(request)
-    # fetch detections once; routing decision is based on the worst score present
-    resp = requests.get(f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections", headers=auth_headers)
-    if resp.status_code != 200:
-        return jsonify({"error": "failed to fetch detections"}), 502
-    detections = resp.json()
+    # The check-then-scan below has to happen under a per-draft lock: two
+    # concurrent calls (e.g. a client retry firing while the first, slow
+    # scan is still running) could otherwise both see "no detections yet"
+    # and both run a full scan, duplicating every finding.
+    with _draft_scan_lock(draft_id):
+        # fetch detections once; routing decision is based on the worst score present
+        resp = requests.get(f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections", headers=auth_headers)
+        if resp.status_code != 200:
+            return jsonify({"error": "failed to fetch detections"}), 502
+        detections = resp.json()
+
+        if not detections:
+            # not scanned yet this call — scan once, then continue with the result
+            detections, error = run_scan(draft_id)
+            if error:
+                return error
 
     if not detections:
-        # not scanned yet this call — scan once, then continue with the result
-        detections, error = run_scan(draft_id)
-        if error:
-            return error
-        if not detections:
-            return jsonify({
-                "draft_id": draft_id,
-                "outcome": "clear",
-                "message": "no sensitive content detected",
-            }), 200
+        return jsonify({
+            "draft_id": draft_id,
+            "outcome": "clear",
+            "message": "no sensitive content detected",
+        }), 200
 
     # any region at score >=4 puts the whole draft on hold for human review
     if any(d["exposure_score"] >= 4 for d in detections):

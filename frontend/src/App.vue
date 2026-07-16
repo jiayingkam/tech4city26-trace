@@ -123,12 +123,20 @@ function restart() {
       />
 
       <!-- Hamburger menu: History / Settings -->
-      <HistoryView v-if="screen === 'history'" @back="screen = 'app'" />
+      <HistoryView
+        v-if="screen === 'history'"
+        @back="screen = 'app'"
+        @history="screen = 'history'"
+        @settings="openSettings"
+        @logout="handleLogout"
+      />
       <SettingsView
         v-else-if="screen === 'settings' && settingsUser"
         :user="settingsUser"
         @updated="settingsUser = $event"
         @back="screen = 'app'"
+        @history="screen = 'history'"
+        @logout="handleLogout"
       />
 
       <!-- Step 0: Login -->

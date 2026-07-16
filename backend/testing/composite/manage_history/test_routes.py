@@ -63,68 +63,105 @@ def test_get_history_invalid_filter(client, auth_headers):
     assert response.status_code == 400
 
 
-def test_get_history_merges_and_sorts_across_drafts(client, auth_headers, mock_requests):
-    drafts = [{"draft_id": "d1"}, {"draft_id": "d2"}]
-    d1_detections = [{"detection_id": "a", "created_at": "2026-01-01T00:00:00+00:00", "resolution": None}]
-    d2_detections = [{"detection_id": "b", "created_at": "2026-02-01T00:00:00+00:00", "resolution": "accepted"}]
+def _draft(draft_id, captured_at, content_type="image", storage_path="x.jpg", text_content=None):
+    return {
+        "draft_id": draft_id,
+        "captured_at": captured_at,
+        "content_type": content_type,
+        "storage_path": storage_path,
+        "text_content": text_content,
+    }
+
+
+def _history_fake_get(drafts, detections_by_draft=None, quarantine_by_draft=None):
+    detections_by_draft = detections_by_draft or {}
+    quarantine_by_draft = quarantine_by_draft or {}
 
     def fake_get(url, headers=None, params=None):
         if url.endswith("/users/user_abc/drafts"):
             return _resp(200, drafts)
-        if url.endswith("/drafts/d1/detections"):
-            return _resp(200, d1_detections)
-        if url.endswith("/drafts/d2/detections"):
-            return _resp(200, d2_detections)
+        for draft_id, dets in detections_by_draft.items():
+            if url.endswith(f"/drafts/{draft_id}/detections"):
+                return _resp(200, dets)
+        for draft_id, items in quarantine_by_draft.items():
+            if url.endswith(f"/drafts/{draft_id}/quarantine"):
+                return _resp(200, items)
+        # any draft not explicitly given detections/quarantine has neither
+        if "/detections" in url or "/quarantine" in url:
+            return _resp(200, [])
         raise AssertionError(f"unexpected GET {url}")
 
-    mock_requests.get.side_effect = fake_get
+    return fake_get
+
+
+def test_get_history_merges_and_sorts_across_drafts(client, auth_headers, mock_requests):
+    drafts = [_draft("d1", "2026-01-01T00:00:00+00:00"), _draft("d2", "2026-02-01T00:00:00+00:00")]
+    mock_requests.get.side_effect = _history_fake_get(drafts)
 
     response = client.get("/history", headers=auth_headers)
 
     assert response.status_code == 200
-    ids = [d["detection_id"] for d in response.json]
-    assert ids == ["b", "a"]  # newest first
+    ids = [p["draft_id"] for p in response.json]
+    assert ids == ["d2", "d1"]  # newest first
 
 
-def test_get_history_filters_by_resolution(client, auth_headers, mock_requests):
-    drafts = [{"draft_id": "d1"}]
+def test_get_history_derives_accepted_status(client, auth_headers, mock_requests):
+    drafts = [_draft("d1", "2026-01-01T00:00:00+00:00")]
+    detections = [{"category": "face", "resolution": "accepted"}]
+    mock_requests.get.side_effect = _history_fake_get(drafts, {"d1": detections})
+
+    response = client.get("/history", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json[0]["status"] == "accepted"
+
+
+def test_get_history_derives_rejected_status(client, auth_headers, mock_requests):
+    drafts = [_draft("d1", "2026-01-01T00:00:00+00:00")]
     detections = [
-        {"detection_id": "a", "created_at": "2026-01-01T00:00:00+00:00", "resolution": "accepted"},
-        {"detection_id": "b", "created_at": "2026-01-02T00:00:00+00:00", "resolution": "rejected"},
+        {"category": "face", "resolution": "accepted"},
+        {"category": "document", "resolution": "rejected"},
     ]
+    mock_requests.get.side_effect = _history_fake_get(drafts, {"d1": detections})
 
-    def fake_get(url, headers=None, params=None):
-        if url.endswith("/users/user_abc/drafts"):
-            return _resp(200, drafts)
-        if url.endswith("/drafts/d1/detections"):
-            return _resp(200, detections)
-        raise AssertionError(f"unexpected GET {url}")
+    response = client.get("/history", headers=auth_headers)
 
-    mock_requests.get.side_effect = fake_get
+    assert response.json[0]["status"] == "rejected"
+
+
+def test_get_history_derives_pending_status(client, auth_headers, mock_requests):
+    drafts = [_draft("d1", "2026-01-01T00:00:00+00:00")]
+    detections = [{"category": "face", "resolution": None}]
+    mock_requests.get.side_effect = _history_fake_get(drafts, {"d1": detections})
+
+    response = client.get("/history", headers=auth_headers)
+
+    assert response.json[0]["status"] == "pending"
+
+
+def test_get_history_derives_quarantined_status_with_cooldown(client, auth_headers, mock_requests):
+    drafts = [_draft("d1", "2026-01-01T00:00:00+00:00")]
+    quarantine = [{"quarantine_id": "q1", "state": "held", "cooldown_expiry": "2026-01-01T01:00:00+00:00"}]
+    mock_requests.get.side_effect = _history_fake_get(drafts, quarantine_by_draft={"d1": quarantine})
+
+    response = client.get("/history", headers=auth_headers)
+
+    assert response.json[0]["status"] == "quarantined"
+    assert response.json[0]["cooldown_expiry"] == "2026-01-01T01:00:00+00:00"
+
+
+def test_get_history_filters_by_status(client, auth_headers, mock_requests):
+    drafts = [_draft("d1", "2026-01-01T00:00:00+00:00"), _draft("d2", "2026-01-02T00:00:00+00:00")]
+    detections_by_draft = {
+        "d1": [{"category": "face", "resolution": "accepted"}],
+        "d2": [{"category": "face", "resolution": "rejected"}],
+    }
+    mock_requests.get.side_effect = _history_fake_get(drafts, detections_by_draft)
 
     response = client.get("/history?filter=accepted", headers=auth_headers)
 
     assert response.status_code == 200
-    assert [d["detection_id"] for d in response.json] == ["a"]
-
-
-def test_get_history_quarantine_merges_across_drafts(client, auth_headers, mock_requests):
-    drafts = [{"draft_id": "d1"}]
-    items = [{"quarantine_id": "q1", "created_at": "2026-01-01T00:00:00+00:00"}]
-
-    def fake_get(url, headers=None, params=None):
-        if url.endswith("/users/user_abc/drafts"):
-            return _resp(200, drafts)
-        if url.endswith("/drafts/d1/quarantine"):
-            return _resp(200, items)
-        raise AssertionError(f"unexpected GET {url}")
-
-    mock_requests.get.side_effect = fake_get
-
-    response = client.get("/history/quarantine", headers=auth_headers)
-
-    assert response.status_code == 200
-    assert response.json[0]["quarantine_id"] == "q1"
+    assert [p["draft_id"] for p in response.json] == ["d1"]
 
 
 def test_delete_history_requires_at_least_one_id(client, auth_headers, mock_requests):

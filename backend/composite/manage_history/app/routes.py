@@ -19,7 +19,17 @@ USERS_SERVICE_URL = os.environ.get("USERS_SERVICE_URL", "http://USERS:5001")
 INTERNAL_API_KEY = os.environ.get("INTERNAL_API_KEY")
 RETENTION_WINDOW_DAYS = 90  # "3 months", anchored per-draft to captured_at
 
-VALID_FILTERS = ("all", "accepted", "rejected")
+VALID_FILTERS = ("all", "accepted", "rejected", "quarantined", "pending")
+
+CATEGORY_LABELS = {
+    "face": "a face",
+    "location": "a location detail",
+    "document": "an identifying document",
+    "financial": "a financial detail",
+    "contact": "a contact detail",
+    "credentials": "a password or access code",
+    "metadata": "hidden location metadata",
+}
 
 
 def _list_drafts(owner_id, auth_headers):
@@ -29,14 +39,70 @@ def _list_drafts(owner_id, auth_headers):
     return resp.json()
 
 
+def _summarize_flags(detections):
+    """A short, plain-language stand-in for an AI-generated summary — no
+    summarization model is wired up, so this just names what was found."""
+    categories = []
+    for d in detections:
+        label = CATEGORY_LABELS.get(d["category"], d["category"])
+        if label not in categories:
+            categories.append(label)
+    if not categories:
+        return "No sensitive content detected."
+    return "Flagged: " + ", ".join(categories) + "."
+
+
+def _derive_status(detections, quarantine_items):
+    """One overall outcome per post, in priority order:
+    1. Currently held in quarantine, cooldown still running -> "quarantined".
+    2. Anything still unresolved (no explicit accept/reject yet) -> "pending".
+    3. Anything rejected (fixed/withheld) takes priority over accepted, since
+       catching and correcting an exposure is the more important signal to
+       surface than the things left as-is alongside it.
+    4. Otherwise, if it was released from quarantine or every flag was
+       accepted as-is -> "accepted".
+    5. No flags at all -> "accepted" (nothing to resolve)."""
+    held = next((q for q in quarantine_items if q["state"] == "held"), None)
+    if held:
+        return "quarantined", held
+
+    if any(d.get("resolution") is None for d in detections):
+        return "pending", None
+    if any(d.get("resolution") == "rejected" for d in detections):
+        return "rejected", None
+    if any(q["state"] == "deleted" for q in quarantine_items):
+        return "rejected", None
+    return "accepted", None
+
+
+def _post_summary(draft, detections, quarantine_items):
+    status, held_item = _derive_status(detections, quarantine_items)
+    summary = {
+        "draft_id": draft["draft_id"],
+        "captured_at": draft["captured_at"],
+        "status": status,
+        "caption": draft.get("text_content") or None,
+        "summary": _summarize_flags(detections),
+        "has_image": draft.get("content_type") == "image" and bool(draft.get("storage_path")),
+    }
+    if held_item:
+        summary["cooldown_expiry"] = held_item["cooldown_expiry"]
+        summary["quarantine_id"] = held_item["quarantine_id"]
+        # Needed by the frontend's "continue this quarantined post" screen,
+        # which reuses the same plain-language hold reason the compose flow
+        # shows right after scanning.
+        summary["reason"] = held_item.get("reason")
+    return summary
+
+
 @bp.route("/history", methods=["GET"])
 def get_history():
-    """All-detections view for the hamburger menu, fanned out across every
+    """One card per post for the History screen, fanned out across every
     draft the caller owns (content_drafts' owner-scoped list is the only
-    cross-draft index that already exists) and merged into one list, since
-    no single atomic service can answer "all of a user's detections" itself."""
-    resolution_filter = request.args.get("filter", "all")
-    if resolution_filter not in VALID_FILTERS:
+    cross-draft index that already exists) — no single atomic service can
+    answer "all of a user's posts with their outcome" itself."""
+    status_filter = request.args.get("filter", "all")
+    if status_filter not in VALID_FILTERS:
         return jsonify({"error": "invalid filter"}), 400
     auth_headers = forwarded_auth_headers(request)
 
@@ -44,41 +110,23 @@ def get_history():
     if drafts is None:
         return jsonify({"error": "failed to fetch drafts"}), 502
 
-    detections = []
+    posts = []
     for draft in drafts:
-        resp = requests.get(
+        det_resp = requests.get(
             f"{DETECTIONS_SERVICE_URL}/drafts/{draft['draft_id']}/detections", headers=auth_headers
         )
-        if resp.status_code == 200:
-            detections.extend(resp.json())
-
-    if resolution_filter != "all":
-        detections = [d for d in detections if d.get("resolution") == resolution_filter]
-
-    detections.sort(key=lambda d: d.get("created_at") or "", reverse=True)
-    return jsonify(detections), 200
-
-
-@bp.route("/history/quarantine", methods=["GET"])
-def get_history_quarantine():
-    """Same fan-out as /history, but for quarantine items — the separate
-    'Quarantined Items' tab."""
-    auth_headers = forwarded_auth_headers(request)
-
-    drafts = _list_drafts(get_jwt_identity(), auth_headers)
-    if drafts is None:
-        return jsonify({"error": "failed to fetch drafts"}), 502
-
-    items = []
-    for draft in drafts:
-        resp = requests.get(
+        q_resp = requests.get(
             f"{QUARANTINE_ITEMS_SERVICE_URL}/drafts/{draft['draft_id']}/quarantine", headers=auth_headers
         )
-        if resp.status_code == 200:
-            items.extend(resp.json())
+        detections = det_resp.json() if det_resp.status_code == 200 else []
+        quarantine_items = q_resp.json() if q_resp.status_code == 200 else []
+        posts.append(_post_summary(draft, detections, quarantine_items))
 
-    items.sort(key=lambda i: i.get("created_at") or "", reverse=True)
-    return jsonify(items), 200
+    if status_filter != "all":
+        posts = [p for p in posts if p["status"] == status_filter]
+
+    posts.sort(key=lambda p: p.get("captured_at") or "", reverse=True)
+    return jsonify(posts), 200
 
 
 def _cascade_delete_draft(draft_id, auth_headers):

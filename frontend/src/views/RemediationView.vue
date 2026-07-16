@@ -446,7 +446,7 @@ async function copySuggested() {
       <a v-else-if="confirmed" class="btn btn-success w-100" :href="cleanedUrl" download="trace_clean_photo.jpg">
         Download cleaned photo
       </a>
-      <button class="btn btn-outline-secondary w-100" @click="$emit('restart')">Back to start</button>
+      <button class="btn btn-outline-secondary w-100" @click="$emit('restart')">Back</button>
     </div>
   </div>
 </template>

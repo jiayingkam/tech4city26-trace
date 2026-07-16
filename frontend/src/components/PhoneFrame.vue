@@ -6,6 +6,7 @@
 
 <style scoped>
 .phone {
+  position: relative; /* anchors absolutely-positioned children (e.g. the hamburger menu) to the phone itself, not the browser viewport */
   width: 390px;
   height: 800px;
   max-height: 90vh;

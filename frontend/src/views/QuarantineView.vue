@@ -100,7 +100,7 @@ async function handleRelease() {
       </button>
     </div>
     <div v-else class="p-3 border-top">
-      <button class="btn btn-outline-secondary w-100" @click="$emit('restart')">Back to start</button>
+      <button class="btn btn-outline-secondary w-100" @click="$emit('restart')">Back</button>
     </div>
   </div>
 </template>

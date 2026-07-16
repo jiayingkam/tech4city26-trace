@@ -94,7 +94,7 @@ const hasFindings = computed(() => props.detections.length > 0)
 
     <div class="p-3 border-top d-flex flex-column gap-2">
       <button v-if="hasFindings" class="btn btn-primary w-100" @click="$emit('continue')">Continue</button>
-      <button class="btn btn-outline-secondary w-100" @click="$emit('restart')">Back to start</button>
+      <button class="btn btn-outline-secondary w-100" @click="$emit('restart')">Back</button>
     </div>
   </div>
 </template>

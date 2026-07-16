@@ -110,8 +110,11 @@ def release_quarantine(quarantine_id):
     if patch_resp.status_code != 200:
         return jsonify({"error": "failed to release quarantine item"}), 502
 
-    # posted as-is despite the warning — the flagged risk went out uncorrected.
-    _set_high_risk_resolutions(draft_id, "accepted", auth_headers)
+    # "Accepted"/"rejected" track whether the user went along with Trace's
+    # advice, not whether the exposure physically went out — releasing a
+    # post despite the warning means the user rejected that advice, so this
+    # (not the edit-and-fix path) is what maps to "rejected".
+    _set_high_risk_resolutions(draft_id, "rejected", auth_headers)
 
     return jsonify(patch_resp.json()), 200
 

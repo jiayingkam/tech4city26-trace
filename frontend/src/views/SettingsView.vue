@@ -1,11 +1,12 @@
 <script setup>
 import { ref } from 'vue'
+import HamburgerMenu from '../components/HamburgerMenu.vue'
 import { updateRetentionMode } from '../api'
 
 const props = defineProps({
   user: { type: Object, required: true },
 })
-const emit = defineEmits(['back', 'updated'])
+const emit = defineEmits(['back', 'updated', 'history', 'settings', 'logout'])
 
 const retentionMode = ref(props.user.retention_mode)
 const saving = ref(false)
@@ -30,7 +31,10 @@ async function save() {
 
 <template>
   <div class="d-flex flex-column h-100">
-    <div class="border-bottom p-3 text-center fw-bold">Settings</div>
+    <div class="border-bottom p-3 text-center fw-bold position-relative">
+      <HamburgerMenu @history="$emit('history')" @settings="$emit('settings')" @logout="$emit('logout')" />
+      Settings
+    </div>
 
     <div class="p-3 flex-grow-1 overflow-auto">
       <p class="fw-semibold small mb-2">How long should Trace keep your history?</p>
@@ -47,7 +51,8 @@ async function save() {
           <span class="d-block fw-semibold">Auto-expire after 3 months</span>
           <span class="d-block text-muted small">
             Each post's flags and quarantine records disappear on their own, 3 months
-            after that post was scanned. Older posts age out first.
+            after that post was scanned. Older posts age out first. You can still open
+            History and delete anything sooner yourself, any time.
           </span>
         </label>
       </div>
@@ -64,7 +69,7 @@ async function save() {
           <span class="d-block fw-semibold">Keep until I delete it myself</span>
           <span class="d-block text-muted small">
             Nothing is removed automatically — use the History menu to select and delete
-            specific posts, flags, or quarantine items whenever you want.
+            specific posts whenever you want.
           </span>
         </label>
       </div>

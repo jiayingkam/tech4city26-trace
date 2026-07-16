@@ -130,6 +130,16 @@ export async function confirmRemediation(draftId) {
   return parseOrThrow(res)
 }
 
+// Re-fetches (or, the first time, re-derives) the proposed edits for a
+// draft that was already scanned — how a "Pending" post in History resumes
+// the clean-up screen. Safe to call again on an already-proposed draft:
+// remediate_content's propose step matches by detection_id, so this just
+// returns the existing proposal instead of creating duplicate edits.
+export async function resumeRemediation(draftId) {
+  const res = await fetchWithRetry(`${REMEDIATE_CONTENT_URL}/drafts/${draftId}/remediate`, { method: 'POST' })
+  return parseOrThrow(res)
+}
+
 export function downloadUrl(draftId) {
   return `${REMEDIATE_CONTENT_URL}/drafts/${draftId}/download`
 }
@@ -253,23 +263,17 @@ export async function updateRetentionMode(userId, retentionMode) {
   return parseOrThrow(res)
 }
 
-// filter is 'all' | 'accepted' | 'rejected' — the hamburger menu's three
-// detection tabs. Quarantined Items is its own separate tab/call below
-// rather than a fourth filter value here, since quarantine items aren't
-// detections.
+// One card per post — filter is 'all' | 'accepted' | 'rejected' | 'quarantined'.
 export async function getHistory(filter = 'all') {
   const res = await fetchWithRetry(`${MANAGE_HISTORY_URL}/history?filter=${filter}`)
   return parseOrThrow(res)
 }
 
-export async function getHistoryQuarantine() {
-  const res = await fetchWithRetry(`${MANAGE_HISTORY_URL}/history/quarantine`)
-  return parseOrThrow(res)
-}
-
-// A mixed batch of whatever's currently selected/checked across the
-// History screen's tabs — "select all" is just the frontend sending every
-// currently-visible id in the relevant array.
+// A mixed batch of whatever's currently selected/checked in the History
+// screen — "select all" is just the frontend sending every currently-visible
+// id. The History screen operates at whole-post granularity, so this is
+// almost always called with draftIds; detectionIds/quarantineIds exist for
+// finer-grained deletes the composite already supports.
 export async function deleteHistoryItems({ draftIds = [], detectionIds = [], quarantineIds = [] }) {
   const res = await fetchWithRetry(`${MANAGE_HISTORY_URL}/history/delete`, {
     method: 'POST',
@@ -281,5 +285,15 @@ export async function deleteHistoryItems({ draftIds = [], detectionIds = [], qua
     }),
   })
   return parseOrThrow(res)
+}
+
+// The History screen's per-card thumbnail. upload_post's /original route is
+// behind the same auth gate as everything else, so — same reasoning as
+// downloadRemediated — this can't just be a plain <img src>; it has to be a
+// real fetch with the token attached, turned into a local blob URL.
+export async function getDraftThumbnail(draftId) {
+  const res = await fetchWithRetry(`${UPLOAD_POST_URL}/drafts/${draftId}/original`)
+  if (!res.ok) return null
+  return URL.createObjectURL(await res.blob())
 }
 
