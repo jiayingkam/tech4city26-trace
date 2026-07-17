@@ -1,3 +1,4 @@
+import io
 import os
 import tempfile
 import threading
@@ -6,6 +7,7 @@ from flask import Blueprint, request, jsonify, send_file
 from PIL import Image, ImageFilter
 
 from trace_auth import forwarded_auth_headers
+import trace_storage
 from .text_redaction import redact_caption
 
 remediate_bp = Blueprint("remediate_content", __name__)
@@ -42,7 +44,6 @@ def _draft_propose_lock(draft_id):
 # resolve against the process's current working directory, which turned out
 # not to be reliably consistent between requests under the dev server.
 SERVICE_ROOT = os.environ.get("SERVICE_ROOT", "/service")
-OUTPUT_DIR = os.path.join(SERVICE_ROOT, "storage", "remediated")
 
 
 def _get_draft(draft_id):
@@ -56,13 +57,12 @@ def _get_draft(draft_id):
 
 def _get_original_path(draft_id):
     """Downloads the draft's original file from upload_post into a local temp
-    file and returns its path. upload_post is the only service that ever
-    writes this file to local disk — as separate Render services (no shared
-    draft_storage volume outside Docker Compose), the bytes have to cross the
-    network instead of being read off a shared path. Re-fetched fresh on
-    every call rather than cached, since this runs infrequently (propose /
-    confirm / revert / restore / download) and staying stateless avoids any
-    risk of a stale or missing temp file between requests."""
+    file and returns its path. upload_post is the only service that writes
+    this file (to a GCS bucket), so the bytes have to cross the network
+    instead of being read off a shared path. Re-fetched fresh on every call
+    rather than cached, since this runs infrequently (propose / confirm /
+    revert / restore / download) and staying stateless avoids any risk of a
+    stale or missing temp file between requests."""
     draft, error = _get_draft(draft_id)
     if error:
         return None, error
@@ -84,8 +84,9 @@ def _get_original_path(draft_id):
 
 
 def apply_remediation(original_path, edits):
-    """Blur each region that has a box. Returns output path. Whatever extension
-    the original has is preserved, since the output name is derived from it."""
+    """Blur each region that has a box and upload the result to the GCS
+    bucket under a blob name derived from original_path. Returns that blob
+    name. Whatever format the original was opened as is preserved on save."""
     img = Image.open(original_path)
 
     for e in edits:
@@ -96,10 +97,11 @@ def apply_remediation(original_path, edits):
             blurred = img.crop(box).filter(ImageFilter.GaussianBlur(radius=15))
             img.paste(blurred, box)
 
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    out_path = os.path.join(OUTPUT_DIR, os.path.basename(original_path))
-    img.save(out_path)  # not passing exif= strips the GPS/EXIF on save
-    return out_path
+    blob_name = os.path.basename(original_path)
+    buf = io.BytesIO()
+    img.save(buf, format=img.format)  # not passing exif= strips the GPS/EXIF on save
+    trace_storage.upload_bytes(blob_name, buf.getvalue())
+    return blob_name
 
 
 def _regenerate_output(draft_id):
@@ -257,9 +259,15 @@ def confirm_remediation(draft_id):
     resp = requests.get(f"{EDITS_SERVICE_URL}/drafts/{draft_id}/edits", headers=auth_headers)
     if resp.status_code != 200:
         return jsonify({"error": "failed to fetch edits"}), 502
+    all_edits = resp.json()
     # only apply edits the user hasn't skipped
-    pending = [e for e in resp.json() if e["status"] == "pending"]
-    if not pending:
+    pending = [e for e in all_edits if e["status"] == "pending"]
+    # skipped edits still standing at confirm time: the user reviewed the
+    # suggestion and chose to leave it as-is, which is a decision, not an
+    # unresolved flag — resolve their detections too, so confirming doesn't
+    # leave the post stuck at "pending" in History forever.
+    skipped = [e for e in all_edits if e["status"] == "reverted"]
+    if not pending and not skipped:
         return jsonify({"error": "no pending edits to confirm"}), 400
 
     confirmed = []
@@ -274,6 +282,9 @@ def confirm_remediation(draft_id):
         confirmed_edit = patch_resp.json()
         confirmed.append(confirmed_edit)
         _set_detection_resolution(confirmed_edit.get("detection_id"), "accepted", auth_headers)
+
+    for e in skipped:
+        _set_detection_resolution(e.get("detection_id"), "accepted", auth_headers)
 
     # rebuild from the original using every currently-applied edit, not just
     # the ones confirmed this call, so repeated confirm/revert/restore cycles
@@ -303,11 +314,11 @@ def download_remediated(draft_id):
         return error
 
     filename = os.path.basename(original_path)
-    path = os.path.join(OUTPUT_DIR, filename)
-    if not os.path.exists(path):
+    data = trace_storage.download_bytes(filename)
+    if data is None:
         return jsonify({"error": "remediated file not found"}), 404
 
-    return send_file(path, as_attachment=True, download_name=f"trace_clean_{filename}")
+    return send_file(io.BytesIO(data), as_attachment=True, download_name=f"trace_clean_{filename}")
 
 
 @remediate_bp.route("/drafts/<draft_id>/remediated", methods=["DELETE"])
@@ -323,9 +334,7 @@ def delete_remediated(draft_id):
     storage_path = draft.get("storage_path")
     if storage_path:
         filename = f"{draft_id}_{os.path.basename(storage_path)}"
-        path = os.path.join(OUTPUT_DIR, filename)
-        if os.path.exists(path):
-            os.remove(path)
+        trace_storage.delete_blob(filename)
     return "", 204
 
 

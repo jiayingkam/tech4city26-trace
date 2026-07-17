@@ -1,3 +1,4 @@
+import re
 from os import environ
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -9,10 +10,19 @@ from .db_retry import wait_for_db
 
 load_dotenv()
 
+# This service's Docker build context (./atomic/exposure_profiles, see
+# docker-compose.yml) doesn't reach backend/shared, so it can't import the
+# trace_cors helper the other services use — duplicated here instead. Any
+# localhost port is allowed alongside FRONTEND_ORIGIN because that header is
+# browser-set and can't be spoofed by a real remote caller, so it's safe in
+# every environment.
+LOCALHOST_ORIGIN = re.compile(r"^http://localhost:\d+$")
+
 
 def create_app() -> Flask:
     app = Flask(__name__)
-    CORS(app, origins=environ.get("FRONTEND_ORIGIN", "http://localhost:3000").split(","))
+    configured_origins = environ.get("FRONTEND_ORIGIN", "http://localhost:3000").split(",")
+    CORS(app, origins=[*configured_origins, LOCALHOST_ORIGIN])
 
     db_server = environ["DB_SERVER"]
     db_name = environ["DB_NAME"]

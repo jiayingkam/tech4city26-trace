@@ -8,3 +8,4 @@ langchain
 langchain-openai
 pydantic
 flask-jwt-extended==4.7.1
+gunicorn==23.0.0

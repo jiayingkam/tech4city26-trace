@@ -1,17 +1,16 @@
-from os import environ
 from flask import Flask, jsonify
-from flask_cors import CORS
 from flask_swagger import swagger
 from flask_swagger_ui import get_swaggerui_blueprint
 from dotenv import load_dotenv
 from trace_auth import init_auth
+from trace_cors import configure_cors
 
 load_dotenv()
 
 
 def create_app() -> Flask:
     app = Flask(__name__)
-    CORS(app, origins=environ.get("FRONTEND_ORIGIN", "http://localhost:3000").split(","))
+    configure_cors(app)
     init_auth(app)
 
     from .routes import bp

@@ -1,17 +1,14 @@
 import os
 import requests
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, request, jsonify, Response
 from flask_jwt_extended import get_jwt_identity
 from werkzeug.utils import secure_filename
 from trace_auth import forwarded_auth_headers
+import trace_storage
 
 bp = Blueprint("upload_post", __name__)
 
 CONTENT_DRAFTS_SERVICE_URL = os.environ.get("CONTENT_DRAFTS_SERVICE_URL", "http://CONTENT_DRAFTS:5002")
-
-# Anchored to an absolute path rather than left relative — see scan_draft/remediate_content
-# for why relative paths aren't safe to resolve against the process's cwd here.
-SERVICE_ROOT = os.environ.get("SERVICE_ROOT", "/service")
 
 VALID_CONTENT_TYPES = ("text", "image", "video")
 DEFAULT_EXTENSION = ".jpg"
@@ -29,10 +26,10 @@ def _safe_detail(resp):
 
 @bp.route("/drafts", methods=["POST"])
 def upload_draft():
-    """Creates a content_drafts record and, if a file was sent, writes it to the
-    shared draft_storage volume and attaches its storage_path to the draft.
-    One call for the frontend to make on 'Share' — mirrors scan_draft/process,
-    which also folds several atomic calls into a single composite endpoint."""
+    """Creates a content_drafts record and, if a file was sent, writes it to
+    the GCS bucket and attaches its storage_path to the draft. One call for
+    the frontend to make on 'Share' — mirrors scan_draft/process, which also
+    folds several atomic calls into a single composite endpoint."""
     # owner_id comes from the caller's own token, not the form body — a
     # client can no longer create a draft on someone else's behalf just by
     # naming a different owner_id.
@@ -62,12 +59,10 @@ def upload_draft():
     if file is not None:
         ext = os.path.splitext(secure_filename(file.filename))[1].lower() or DEFAULT_EXTENSION
         relative_path = f"storage/originals/{draft_id}{ext}"
-        absolute_path = os.path.join(SERVICE_ROOT, relative_path)
-        os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
 
         try:
-            file.save(absolute_path)
-        except OSError as e:
+            trace_storage.upload_bytes(relative_path, file.read(), content_type=file.mimetype)
+        except Exception as e:
             requests.delete(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}", headers=auth_headers)
             return jsonify({"error": "failed to store file", "detail": str(e)}), 502
 
@@ -112,10 +107,11 @@ def insert_caption(draft_id):
 @bp.route("/drafts/<draft_id>/original", methods=["GET"])
 def get_original(draft_id):
     """Serves the original file's bytes over HTTP. This service is the only
-    one that ever writes the file to local disk — scan_draft and
-    remediate_content run as separate services with their own separate
-    filesystems (no shared draft_storage volume outside Docker Compose), so
-    this is how they now have to reach it instead of reading the path directly."""
+    one that ever writes the file, to a GCS bucket rather than local disk —
+    scan_draft and remediate_content run as separate Cloud Run services, each
+    of which may be backed by multiple, independently-recycled container
+    instances with their own local filesystem, so local disk can't be relied
+    on to still have the file by the time a later request asks for it."""
     draft_resp = requests.get(
         f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}",
         headers=forwarded_auth_headers(request),
@@ -128,10 +124,10 @@ def get_original(draft_id):
     if not storage_path:
         return jsonify({"error": "draft has no stored file"}), 400
 
-    absolute_path = os.path.join(SERVICE_ROOT, storage_path)
-    if not os.path.exists(absolute_path):
+    data = trace_storage.download_bytes(storage_path)
+    if data is None:
         return jsonify({"error": "file not found"}), 404
-    return send_file(absolute_path)
+    return Response(data)
 
 
 @bp.route("/drafts/<draft_id>/original", methods=["DELETE"])
@@ -153,9 +149,7 @@ def delete_original(draft_id):
 
     storage_path = draft_resp.json().get("storage_path")
     if storage_path:
-        absolute_path = os.path.join(SERVICE_ROOT, storage_path)
-        if os.path.exists(absolute_path):
-            os.remove(absolute_path)
+        trace_storage.delete_blob(storage_path)
 
     return "", 204
 

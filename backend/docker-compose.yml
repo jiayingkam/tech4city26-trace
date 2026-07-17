@@ -181,8 +181,10 @@ services:
     ports:
       - "5011:5011"
     env_file: ../.env
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/gcp/key.json
     volumes:
-      - draft_storage:/service/storage
+      - ../secret/project-8b1de40b-e726-4619-bb6-155c865a304c.json:/gcp/key.json:ro
     depends_on:
       content_drafts:
         condition: service_healthy
@@ -204,8 +206,6 @@ services:
     ports:
       - "5012:5012"
     env_file: ../.env
-    volumes:
-      - draft_storage:/service/storage
     depends_on:
       content_drafts:
         condition: service_healthy
@@ -237,8 +237,10 @@ services:
     ports:
       - "5014:5014"
     env_file: ../.env
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/gcp/key.json
     volumes:
-      - draft_storage:/service/storage
+      - ../secret/project-8b1de40b-e726-4619-bb6-155c865a304c.json:/gcp/key.json:ro
     depends_on:
       content_drafts:
         condition: service_healthy
@@ -277,10 +279,3 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
-
-# Shared between upload_post (writes the original file that was shared), scan_draft
-# (reads the original to detect faces/GPS/etc.), and remediate_content (reads the
-# original, writes the blurred/stripped output) — all three need to see the same
-# file by the same relative path.
-volumes:
-  draft_storage:

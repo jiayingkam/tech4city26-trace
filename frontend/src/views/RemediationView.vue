@@ -277,11 +277,19 @@ async function onDragEnd() {
 async function toggleEdit(edit) {
   error.value = ''
   const restoring = edit.status === 'reverted'
+  // Flip + redraw immediately so the box/blur preview tracks the checkbox
+  // with no visible lag; the server call below reconciles (or rolls back
+  // on failure) rather than being the thing that first applies the change.
+  const previousStatus = edit.status
+  edit.status = restoring ? 'pending' : 'reverted'
+  drawPreview()
   try {
     const updated = restoring ? await restoreEdit(edit.edit_id) : await revertEdit(edit.edit_id)
     edit.status = updated.status
     drawPreview()
   } catch (err) {
+    edit.status = previousStatus
+    drawPreview()
     error.value = err.message || 'Could not update that edit.'
   }
 }

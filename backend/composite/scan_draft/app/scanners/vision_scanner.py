@@ -255,6 +255,19 @@ def _locate_via_face_heuristic(crop, face_local):
     }
 
 
+# Caps the working image size for the crop/pose/gpt-4o pipeline below, so
+# the full-resolution decoded bitmap isn't held in memory for the whole
+# per-face loop. Only applied *after* detect_faces runs on the original
+# file — face detection is genuinely resolution-sensitive (a small/distant
+# face can fall under face_localizer.MIN_FACE_WIDTH if shrunk first) — so
+# this doesn't change who gets scanned, only how much bitmap is carried
+# around while scanning them. Downstream of detection, mediapipe resizes
+# its input to a fixed small size regardless of crop resolution, and the
+# chest-band crop gets upscaled again (CHEST_BAND_UPSCALE) before going to
+# gpt-4o, so this cap doesn't cost detection accuracy either.
+FACE_SCAN_MAX_DIMENSION = 1600
+
+
 def scan_image(image_path):
     """Returns a list of detection dicts for identifying documents (school
     uniforms/crests/badges) in an image. Finds people first via Cloud
@@ -274,10 +287,22 @@ def scan_image(image_path):
     if not faces:
         return _scan_whole_image_fallback(image_path, width, height)
 
+    # Everything past this point works in the (possibly) downscaled image's
+    # coordinate space; scale is folded back out of the final bounding_region
+    # below so reported regions still line up with the original photo.
+    scale = min(1.0, FACE_SCAN_MAX_DIMENSION / max(width, height))
+    scan_faces = [
+        {"x": f["x"] * scale, "y": f["y"] * scale, "w": f["w"] * scale, "h": f["h"] * scale}
+        for f in faces
+    ]
+
     findings = []
     with Image.open(image_path) as img:
-        for face in faces:
-            torso_region = estimate_torso_crop(face, faces, width, height)
+        if scale < 1.0:
+            img = img.resize((round(width * scale), round(height * scale)), Image.LANCZOS)
+
+        for face in scan_faces:
+            torso_region = estimate_torso_crop(face, scan_faces, img.width, img.height)
             crop = img.crop((
                 torso_region["x"], torso_region["y"],
                 torso_region["x"] + torso_region["w"], torso_region["y"] + torso_region["h"],
@@ -302,10 +327,10 @@ def scan_image(image_path):
                 "model_version": located["model_version"],
                 "detail": located["detail"] or "School uniform crest or badge visible.",
                 "bounding_region": {
-                    "x": torso_region["x"] + region["x"],
-                    "y": torso_region["y"] + region["y"],
-                    "w": region["w"],
-                    "h": region["h"],
+                    "x": round((torso_region["x"] + region["x"]) / scale),
+                    "y": round((torso_region["y"] + region["y"]) / scale),
+                    "w": round(region["w"] / scale),
+                    "h": round(region["h"] / scale),
                 },
             })
     return findings

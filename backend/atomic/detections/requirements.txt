@@ -6,3 +6,4 @@ python-dotenv==1.0.1
 flask-swagger==0.2.14
 flask-swagger-ui==5.32.5
 pyodbc==5.3.0
+gunicorn==23.0.0

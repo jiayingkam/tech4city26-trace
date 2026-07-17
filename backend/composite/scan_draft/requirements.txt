@@ -10,3 +10,4 @@ pydantic
 google-cloud-vision
 mediapipe==0.10.18
 flask-jwt-extended==4.7.1
+gunicorn==23.0.0
