@@ -148,6 +148,13 @@ export async function resumeRemediation(draftId) {
   return parseOrThrow(res)
 }
 
+// The user's "no, don't post this" — marks the draft rejected instead of
+// leaving it stuck pending forever if they just navigate away.
+export async function cancelRemediation(draftId) {
+  const res = await fetchWithRetry(`${REMEDIATE_CONTENT_URL}/drafts/${draftId}/remediate/cancel`, { method: 'POST' })
+  return parseOrThrow(res)
+}
+
 export function downloadUrl(draftId) {
   return `${REMEDIATE_CONTENT_URL}/drafts/${draftId}/download`
 }

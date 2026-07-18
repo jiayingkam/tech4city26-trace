@@ -2,6 +2,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import {
   confirmRemediation,
+  cancelRemediation,
   revertEdit,
   restoreEdit,
   downloadRemediated,
@@ -16,7 +17,7 @@ const props = defineProps({
   photoUrl: { type: String, default: null },
   detections: { type: Array, default: () => [] },
 })
-defineEmits(['restart'])
+const emit = defineEmits(['restart'])
 
 const proposedEdits = ref((props.remediation.proposed_edits || []).map((e) => ({ ...e })))
 const redaction = props.remediation.text_redaction
@@ -72,6 +73,7 @@ function editLabel(edit) {
 }
 
 const confirming = ref(false)
+const cancelling = ref(false)
 const confirmed = ref(false)
 const cleanedUrl = ref(null)
 const error = ref('')
@@ -348,6 +350,18 @@ async function confirm() {
   }
 }
 
+async function cancel() {
+  cancelling.value = true
+  error.value = ''
+  try {
+    await cancelRemediation(props.draftId)
+    emit('restart')
+  } catch (err) {
+    error.value = err.message || 'Could not cancel this post.'
+    cancelling.value = false
+  }
+}
+
 async function copySuggested() {
   await navigator.clipboard.writeText(redaction.suggested_caption)
   copied.value = true
@@ -449,7 +463,7 @@ async function copySuggested() {
       <button
         v-if="!confirmed && hasPendingImageEdits"
         class="btn btn-primary w-100"
-        :disabled="confirming"
+        :disabled="confirming || cancelling"
         @click="confirm"
       >
         {{ confirming ? 'Cleaning up…' : 'Create cleaned copy' }}
@@ -457,7 +471,15 @@ async function copySuggested() {
       <a v-else-if="confirmed" class="btn btn-success w-100" :href="cleanedUrl" download="trace_clean_photo.jpg">
         Download cleaned photo
       </a>
-      <button class="btn btn-outline-secondary w-100" @click="$emit('restart')">Back</button>
+      <button
+        v-if="!confirmed"
+        class="btn btn-outline-danger w-100"
+        :disabled="confirming || cancelling"
+        @click="cancel"
+      >
+        {{ cancelling ? 'Cancelling…' : 'Cancel this post' }}
+      </button>
+      <button class="btn btn-outline-secondary w-100" :disabled="cancelling" @click="emit('restart')">Back</button>
     </div>
   </div>
 </template>

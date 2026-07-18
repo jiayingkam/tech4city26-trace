@@ -3,7 +3,16 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import HamburgerMenu from '../components/HamburgerMenu.vue'
 import QuarantineView from './QuarantineView.vue'
 import RemediationView from './RemediationView.vue'
-import { getHistory, deleteHistoryItems, getDraftThumbnail, getMe, getDetections, resumeRemediation } from '../api'
+import PostDetailView from './PostDetailView.vue'
+import {
+  getHistory,
+  deleteHistoryItems,
+  getDraftThumbnail,
+  getMe,
+  getDetections,
+  getTeachableMoment,
+  resumeRemediation,
+} from '../api'
 
 defineEmits(['back', 'history', 'settings', 'logout'])
 
@@ -12,9 +21,10 @@ defineEmits(['back', 'history', 'settings', 'logout'])
 // as-is rather than rebuilt, so Edit/Reject/Delete behave identically here
 // and from the compose flow.
 const activePost = ref(null)
-const subScreen = ref(null) // null | 'quarantine' | 'remediate'
+const subScreen = ref(null) // null | 'quarantine' | 'remediate' | 'detail'
 const activeRemediation = ref(null)
 const activeDetections = ref([])
+const activeTeachableMoment = ref(null)
 
 function openQuarantinedPost(post) {
   activePost.value = post
@@ -51,11 +61,32 @@ async function openPendingPost(post) {
   }
 }
 
+// Accepted/rejected posts are closed records — nothing left to decide, just
+// a read-only look at what was found, how it was resolved, and why it
+// mattered (same teachable-moment lesson shown right after the original scan).
+async function openClosedPost(post) {
+  activePost.value = post
+  error.value = ''
+  try {
+    activeDetections.value = await getDetections(post.draft_id)
+    subScreen.value = 'detail'
+    try {
+      activeTeachableMoment.value = await getTeachableMoment(post.draft_id)
+    } catch {
+      activeTeachableMoment.value = null
+    }
+  } catch (err) {
+    error.value = err.message || 'Could not load this post.'
+    activePost.value = null
+  }
+}
+
 function closeSubScreen() {
   activePost.value = null
   subScreen.value = null
   activeRemediation.value = null
   activeDetections.value = []
+  activeTeachableMoment.value = null
   load() // the post's status likely just changed (edited/released/deleted)
 }
 
@@ -64,12 +95,6 @@ const STATUS_LABELS = {
   rejected: 'Rejected',
   quarantined: 'Quarantined',
   pending: 'Pending',
-}
-
-// Quarantined and pending are the two statuses with something left to
-// decide — everything else (accepted/rejected) is a closed record.
-function isTappable(post) {
-  return post.status === 'quarantined' || post.status === 'pending'
 }
 
 const TABS = [
@@ -111,14 +136,17 @@ function clearLongPress() {
 }
 function handleCardTap(post) {
   // Once in selection mode, a plain tap toggles selection instead of
-  // needing another long-press for every subsequent card. Otherwise, only
-  // the two statuses with something left to decide are tappable.
+  // needing another long-press for every subsequent card. Otherwise every
+  // card opens something: quarantined/pending have something left to
+  // decide, accepted/rejected just show a read-only detail view.
   if (selectionMode.value) {
     toggleSelected(post.draft_id)
   } else if (post.status === 'quarantined') {
     openQuarantinedPost(post)
   } else if (post.status === 'pending') {
     openPendingPost(post)
+  } else {
+    openClosedPost(post)
   }
 }
 function toggleSelected(draftId) {
@@ -164,15 +192,26 @@ async function load() {
 }
 
 watch(activeTab, load)
+
+// Drives cooldownRemaining below — Date.now() on its own isn't reactive, so
+// without this the countdown next to a quarantined card would only update
+// on the next unrelated re-render (switching tabs, deleting, etc.) instead
+// of ticking down live, same live-countdown approach as QuarantineView.
+const now = ref(Date.now())
+let clock
 onMounted(async () => {
   load()
+  clock = setInterval(() => { now.value = Date.now() }, 1000)
   try {
     retentionMode.value = (await getMe()).retention_mode
   } catch {
     // Non-critical — the status line just stays blank if this fails.
   }
 })
-onBeforeUnmount(revokeThumbnails)
+onBeforeUnmount(() => {
+  revokeThumbnails()
+  clearInterval(clock)
+})
 
 async function deleteSelected() {
   if (selectedIds.value.size === 0) return
@@ -196,7 +235,7 @@ function formatDateTime(iso) {
 
 function cooldownRemaining(post) {
   if (post.status !== 'quarantined' || !post.cooldown_expiry) return ''
-  const ms = new Date(post.cooldown_expiry).getTime() - Date.now()
+  const ms = new Date(post.cooldown_expiry).getTime() - now.value
   if (ms <= 0) return '0:00 left'
   const m = Math.floor(ms / 60000)
   const s = Math.floor((ms % 60000) / 1000)
@@ -220,6 +259,14 @@ function cooldownRemaining(post) {
     :remediation="activeRemediation"
     :photo-url="thumbnails[activePost.draft_id]"
     :detections="activeDetections"
+    @restart="closeSubScreen"
+  />
+  <PostDetailView
+    v-else-if="subScreen === 'detail'"
+    :post="activePost"
+    :photo-url="thumbnails[activePost.draft_id]"
+    :detections="activeDetections"
+    :teachable-moment="activeTeachableMoment"
     @restart="closeSubScreen"
   />
 
@@ -279,7 +326,7 @@ function cooldownRemaining(post) {
         v-for="post in posts"
         :key="post.draft_id"
         class="post-card mb-3"
-        :class="{ selected: selectedIds.has(post.draft_id), tappable: isTappable(post) && !selectionMode }"
+        :class="{ selected: selectedIds.has(post.draft_id), tappable: !selectionMode }"
         @pointerdown="startLongPress(post.draft_id)"
         @pointerup="clearLongPress"
         @pointerleave="clearLongPress"

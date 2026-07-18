@@ -300,6 +300,23 @@ def confirm_remediation(draft_id):
     }), 200
 
 
+@remediate_bp.route("/drafts/<draft_id>/remediate/cancel", methods=["POST"])
+def cancel_remediation(draft_id):
+    """The user decided not to post this after all — confirm's counterpart
+    for a pending (non-quarantined) draft. Nothing was ever baked into an
+    output file (confirm never ran), so there's no file to clean up, just
+    the detections' resolution label: marking every still-unresolved one
+    "rejected" is what moves the post out of "pending" in History."""
+    auth_headers = forwarded_auth_headers(request)
+    resp = requests.get(f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections", headers=auth_headers)
+    if resp.status_code != 200:
+        return jsonify({"error": "failed to fetch detections"}), 502
+    for d in resp.json():
+        if d.get("resolution") is None:
+            _set_detection_resolution(d["detection_id"], "rejected", auth_headers)
+    return jsonify({"draft_id": draft_id, "status": "rejected"}), 200
+
+
 @remediate_bp.route("/drafts/<draft_id>/download", methods=["GET"])
 def download_remediated(draft_id):
     # only serve the clean file if the user confirmed (>=1 applied edit)

@@ -1,4 +1,5 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import requests
 from flask import Blueprint, request, jsonify
@@ -7,6 +8,8 @@ from flask_jwt_extended import get_jwt_identity
 from trace_auth import forwarded_auth_headers
 
 bp = Blueprint("manage_history", __name__)
+
+DOWNSTREAM_TIMEOUT_S = 10
 
 CONTENT_DRAFTS_SERVICE_URL = os.environ.get("CONTENT_DRAFTS_SERVICE_URL", "http://CONTENT_DRAFTS:5002")
 DETECTIONS_SERVICE_URL = os.environ.get("DETECTIONS_SERVICE_URL", "http://DETECTIONS:5003")
@@ -95,6 +98,22 @@ def _post_summary(draft, detections, quarantine_items):
     return summary
 
 
+def _fetch_detections(draft_id, auth_headers):
+    resp = requests.get(
+        f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections", headers=auth_headers, timeout=DOWNSTREAM_TIMEOUT_S
+    )
+    return resp.json() if resp.status_code == 200 else []
+
+
+def _fetch_quarantine_items(draft_id, auth_headers):
+    resp = requests.get(
+        f"{QUARANTINE_ITEMS_SERVICE_URL}/drafts/{draft_id}/quarantine",
+        headers=auth_headers,
+        timeout=DOWNSTREAM_TIMEOUT_S,
+    )
+    return resp.json() if resp.status_code == 200 else []
+
+
 @bp.route("/history", methods=["GET"])
 def get_history():
     """One card per post for the History screen, fanned out across every
@@ -110,17 +129,19 @@ def get_history():
     if drafts is None:
         return jsonify({"error": "failed to fetch drafts"}), 502
 
-    posts = []
-    for draft in drafts:
-        det_resp = requests.get(
-            f"{DETECTIONS_SERVICE_URL}/drafts/{draft['draft_id']}/detections", headers=auth_headers
-        )
-        q_resp = requests.get(
-            f"{QUARANTINE_ITEMS_SERVICE_URL}/drafts/{draft['draft_id']}/quarantine", headers=auth_headers
-        )
-        detections = det_resp.json() if det_resp.status_code == 200 else []
-        quarantine_items = q_resp.json() if q_resp.status_code == 200 else []
-        posts.append(_post_summary(draft, detections, quarantine_items))
+    # Per-draft detections/quarantine lookups are independent of each other,
+    # so fan them all out at once instead of two round trips per draft in
+    # sequence — with enough drafts, the sequential version's wall time
+    # stacks up past the frontend's own per-request timeout (fetchWithRetry).
+    with ThreadPoolExecutor(max_workers=max(1, len(drafts) * 2)) as executor:
+        det_futures = {d["draft_id"]: executor.submit(_fetch_detections, d["draft_id"], auth_headers) for d in drafts}
+        q_futures = {
+            d["draft_id"]: executor.submit(_fetch_quarantine_items, d["draft_id"], auth_headers) for d in drafts
+        }
+        posts = [
+            _post_summary(draft, det_futures[draft["draft_id"]].result(), q_futures[draft["draft_id"]].result())
+            for draft in drafts
+        ]
 
     if status_filter != "all":
         posts = [p for p in posts if p["status"] == status_filter]
