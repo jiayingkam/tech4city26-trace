@@ -1,0 +1,184 @@
+.scan-mascot {
+  --bounce-duration: 1.35s;
+  position: relative;
+  display: grid;
+  justify-items: center;
+  width: 96px;
+  min-height: 104px;
+}
+
+.scan-mascot-icon {
+  --rise-y: -18px;
+  --tilt-rise: -7deg;
+  --drop-y: 3px;
+  --tilt-drop: 5deg;
+  --sx-rise: 1;
+  --sy-rise: 1;
+  --sx-drop: 1;
+  --sy-drop: 1;
+  --opacity-rise: 1;
+  --opacity-drop: 1;
+  width: 76px;
+  height: 76px;
+  transform-origin: 50% 85%;
+  animation: scan-mascot-bounce var(--bounce-duration) cubic-bezier(0.28, 0.84, 0.42, 1) infinite;
+}
+
+.scan-mascot-shadow {
+  --rise-y: 0;
+  --tilt-rise: 0deg;
+  --drop-y: 0;
+  --tilt-drop: 0deg;
+  --sx-rise: 0.58;
+  --sy-rise: 0.5;
+  --sx-drop: 1.14;
+  --sy-drop: 0.82;
+  --opacity-rise: 0.22;
+  --opacity-drop: 0.42;
+  display: block;
+  width: 54px;
+  height: 12px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: rgba(45, 55, 72, 0.2);
+  transform-origin: center;
+  animation: scan-mascot-bounce var(--bounce-duration) cubic-bezier(0.28, 0.84, 0.42, 1) infinite;
+}
+
+.scan-shield {
+  fill: #4f8df7;
+}
+
+.scan-shield-highlight {
+  fill: #79c2ff;
+  opacity: 0.82;
+}
+
+.scan-lens {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 7;
+}
+
+.scan-handle {
+  fill: none;
+  stroke: #ffffff;
+  stroke-linecap: round;
+  stroke-width: 8;
+}
+
+.scan-glint {
+  fill: none;
+  stroke: #dff4ff;
+  stroke-linecap: round;
+  stroke-width: 4;
+}
+
+.scan-camera-body {
+  fill: #4f8df7;
+}
+
+.scan-camera-top {
+  fill: #2f6fd8;
+}
+
+.scan-camera-lens {
+  fill: #ffffff;
+  stroke: #79c2ff;
+  stroke-width: 8;
+}
+
+.scan-camera-dot {
+  fill: #dff4ff;
+}
+
+.scan-pencil-body {
+  fill: #4f8df7;
+}
+
+.scan-pencil-tip {
+  fill: #2d3748;
+}
+
+.scan-pencil-eraser {
+  fill: #79c2ff;
+}
+
+.scan-pencil-line {
+  fill: none;
+  stroke: #ffffff;
+  stroke-linecap: round;
+  stroke-width: 5;
+}
+
+.scan-magnifier-lens {
+  fill: #79c2ff;
+  stroke: #4f8df7;
+  stroke-width: 8;
+}
+
+.scan-magnifier-handle {
+  fill: none;
+  stroke: #4f8df7;
+  stroke-linecap: round;
+  stroke-width: 10;
+}
+
+.scan-magnifier-scan {
+  fill: none;
+  stroke: #ffffff;
+  stroke-linecap: round;
+  stroke-width: 5;
+}
+
+.scan-phone-body {
+  fill: #4f8df7;
+}
+
+.scan-phone-screen {
+  fill: #dff4ff;
+}
+
+.scan-phone-button {
+  fill: #ffffff;
+}
+
+.scan-phone-scan {
+  fill: none;
+  stroke: #2f6fd8;
+  stroke-linecap: round;
+  stroke-width: 4;
+}
+
+@keyframes scan-mascot-bounce {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg) scaleX(1) scaleY(1);
+    opacity: 1;
+  }
+
+  45% {
+    transform:
+      translateY(var(--rise-y))
+      rotate(var(--tilt-rise))
+      scaleX(var(--sx-rise))
+      scaleY(var(--sy-rise));
+    opacity: var(--opacity-rise);
+  }
+
+  62% {
+    transform:
+      translateY(var(--drop-y))
+      rotate(var(--tilt-drop))
+      scaleX(var(--sx-drop))
+      scaleY(var(--sy-drop));
+    opacity: var(--opacity-drop);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scan-mascot-icon,
+  .scan-mascot-shadow {
+    animation: none;
+  }
+}

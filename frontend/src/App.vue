@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import PhoneFrame from './components/PhoneFrame.vue'
 import HamburgerMenu from './components/HamburgerMenu.vue'
 import LoginView from './views/LoginView.vue'
@@ -10,6 +10,7 @@ import QuarantineView from './views/QuarantineView.vue'
 import HistoryView from './views/HistoryView.vue'
 import SettingsView from './views/SettingsView.vue'
 import { uploadPost, processDraft, getDetections, getTeachableMoment, getToken, getMe, logout as apiLogout } from './api'
+import { quickTeachTips } from './content/loadQuickTeach'
 
 // 0 login, 1 compose, 2 scanning, 3 results, 4 action, 5 error — skip
 // straight past login if a token from earlier this tab session is still
@@ -32,6 +33,10 @@ const wakingUp = ref(false)
 // logged in, and returning to 'app' resumes wherever the step flow was.
 const screen = ref('app')
 const settingsUser = ref(null)
+// This is the tips that would be shown when the screen is loading
+const quickTeachTip = ref('')
+const scanMascots = ['camera', 'shield', 'pencil', 'magnifier', 'phone']
+const scanMascot = ref(scanMascots[0])
 
 async function openSettings() {
   errorMessage.value = ''
@@ -61,7 +66,7 @@ async function handleShare(payload) {
   errorMessage.value = ''
   wakingUp.value = false
   step.value = 2
-
+  startQuickTeach()
   if (photoPreviewUrl.value) URL.revokeObjectURL(photoPreviewUrl.value)
   photoPreviewUrl.value = URL.createObjectURL(payload.photoFile)
 
@@ -97,6 +102,7 @@ async function handleShare(payload) {
     step.value = 5
   } finally {
     wakingUp.value = false
+    stopQuickTeach()
   }
 }
 
@@ -106,6 +112,7 @@ function handleQuarantineEdit(remediation) {
 }
 
 function restart() {
+  stopQuickTeach()
   step.value = 1
   if (photoPreviewUrl.value) URL.revokeObjectURL(photoPreviewUrl.value)
   photoPreviewUrl.value = null
@@ -116,6 +123,31 @@ function restart() {
   activeRemediation.value = null
   errorMessage.value = ''
 }
+let quickTeachTimer = null
+
+function pickScanMascot() {
+  scanMascot.value = scanMascots[Math.floor(Math.random() * scanMascots.length)]
+}
+
+function pickQuickTeachTip() {
+  const next = quickTeachTips[Math.floor(Math.random() * quickTeachTips.length)]
+  quickTeachTip.value = next
+}
+
+function startQuickTeach() {
+  pickScanMascot()
+  pickQuickTeachTip()
+  clearInterval(quickTeachTimer)
+  quickTeachTimer = setInterval(pickQuickTeachTip, 5000)
+}
+
+function stopQuickTeach() {
+  clearInterval(quickTeachTimer)
+  quickTeachTimer = null
+}
+
+onUnmounted(stopQuickTeach)
+
 </script>
 
 <template>
@@ -154,17 +186,51 @@ function restart() {
 
       <!-- Step 2: Scanning -->
       <div v-else-if="step === 2" class="app-screen align-items-center justify-content-center text-center p-4">
-        <div class="spinner-border text-primary mb-3" role="status">
+        <div class="scan-mascot mb-3" role="status" aria-label="Scanning">
+          <svg v-if="scanMascot === 'camera'" class="scan-mascot-icon" viewBox="0 0 96 96" aria-hidden="true">
+            <rect class="scan-camera-body" x="18" y="28" width="60" height="42" rx="12" />
+            <path class="scan-camera-top" d="M36 28l5-8h16l5 8" />
+            <circle class="scan-camera-lens" cx="48" cy="49" r="14" />
+            <circle class="scan-camera-dot" cx="66" cy="39" r="4" />
+            <path class="scan-glint" d="M42 44c2.2-2.2 5.4-3.2 8.6-2.6" />
+          </svg>
+          <svg v-else-if="scanMascot === 'shield'" class="scan-mascot-icon" viewBox="0 0 96 96" aria-hidden="true">
+            <path
+              class="scan-shield"
+              d="M48 8 76 18v25c0 18.5-11.5 34.8-28 42-16.5-7.2-28-23.5-28-42V18L48 8Z"
+            />
+            <path
+              class="scan-shield-highlight"
+              d="M48 16 68 23v19c0 13.5-7.6 25.8-20 32.5V16Z"
+            />
+            <circle class="scan-lens" cx="45" cy="43" r="13" />
+            <path class="scan-handle" d="m55 53 13 13" />
+            <path class="scan-glint" d="M39 38c2.2-2.2 5.4-3.2 8.6-2.6" />
+          </svg>
+          <svg v-else-if="scanMascot === 'pencil'" class="scan-mascot-icon" viewBox="0 0 96 96" aria-hidden="true">
+            <path class="scan-pencil-body" d="M25 66 62 29l13 13-37 37-17 4 4-17Z" />
+            <path class="scan-pencil-tip" d="m21 83 4-17 13 13-17 4Z" />
+            <path class="scan-pencil-eraser" d="m62 29 7-7c2.4-2.4 6.2-2.4 8.6 0l4.4 4.4c2.4 2.4 2.4 6.2 0 8.6l-7 7-13-13Z" />
+            <path class="scan-pencil-line" d="M32 66 62 36" />
+          </svg>
+          <svg v-else-if="scanMascot === 'magnifier'" class="scan-mascot-icon" viewBox="0 0 96 96" aria-hidden="true">
+            <circle class="scan-magnifier-lens" cx="42" cy="40" r="22" />
+            <path class="scan-magnifier-handle" d="m58 57 19 19" />
+            <path class="scan-magnifier-scan" d="M30 41h24M36 32h13M36 50h9" />
+          </svg>
+          <svg v-else class="scan-mascot-icon" viewBox="0 0 96 96" aria-hidden="true">
+            <rect class="scan-phone-body" x="28" y="10" width="40" height="76" rx="12" />
+            <rect class="scan-phone-screen" x="34" y="20" width="28" height="50" rx="5" />
+            <circle class="scan-phone-button" cx="48" cy="77" r="3" />
+            <path class="scan-phone-scan" d="M39 37h18M39 46h14M39 55h10" />
+          </svg>
+          <span class="scan-mascot-shadow" aria-hidden="true"></span>
           <span class="visually-hidden">Scanning…</span>
         </div>
-        <template v-if="wakingUp">
-          <p class="fw-bold mb-1">Scanning your post</p>
-          <p class="soft-note">This is taking a little longer than usual. Thanks for hanging tight.</p>
-        </template>
-        <template v-else>
-          <p class="fw-bold mb-1">Scanning your post</p>
-          <p class="soft-note">Checking for faces, places, text, and hidden photo data.</p>
-        </template>
+        <p class="fw-bold mb-1">Scanning your post......</p>
+        <div v-if="quickTeachTip" class="mt-3 text-center">
+          <p class="small mb-0 bold-note">{{ quickTeachTip }}</p>
+        </div>
       </div>
 
       <!-- Step 3: Results -->
