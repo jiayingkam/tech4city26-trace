@@ -119,7 +119,7 @@ function restart() {
 </script>
 
 <template>
-  <div class="d-flex justify-content-center align-items-center min-vh-100 bg-light">
+  <div class="app-stage d-flex justify-content-center align-items-center">
     <PhoneFrame>
 
       <HamburgerMenu
@@ -153,17 +153,17 @@ function restart() {
       <ComposeView v-else-if="step === 1" @share="handleShare" />
 
       <!-- Step 2: Scanning -->
-      <div v-else-if="step === 2" class="d-flex flex-column h-100 align-items-center justify-content-center text-center p-4">
+      <div v-else-if="step === 2" class="app-screen align-items-center justify-content-center text-center p-4">
         <div class="spinner-border text-primary mb-3" role="status">
           <span class="visually-hidden">Scanning…</span>
         </div>
         <template v-if="wakingUp">
-          <p class="fw-semibold mb-1">Scanning your post</p>
-          <p class="text-muted small">This is taking a little longer than usual — thanks for your patience.</p>
+          <p class="fw-bold mb-1">Scanning your post</p>
+          <p class="soft-note">This is taking a little longer than usual. Thanks for hanging tight.</p>
         </template>
         <template v-else>
-          <p class="fw-semibold mb-1">Scanning your post</p>
-          <p class="text-muted small">Checking for faces, locations, and hidden data…</p>
+          <p class="fw-bold mb-1">Scanning your post</p>
+          <p class="soft-note">Checking for faces, places, text, and hidden photo data.</p>
         </template>
       </div>
 
@@ -195,7 +195,7 @@ function restart() {
       />
 
       <!-- Step 5: Error -->
-      <div v-else-if="step === 5" class="p-4 text-center">
+      <div v-else-if="step === 5" class="app-screen justify-content-center p-4 text-center">
         <p class="text-danger fw-semibold">{{ errorMessage }}</p>
         <button class="btn btn-outline-secondary" @click="restart">Try again</button>
       </div>

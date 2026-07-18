@@ -36,10 +36,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="d-flex flex-column h-100">
-    <div class="border-bottom p-3 text-center fw-bold">New post</div>
+  <div class="app-screen">
+    <div class="app-header">
+      <h1 class="app-title">New post</h1>
+      <p class="app-subtitle">Add a photo and Trace will check it first.</p>
+    </div>
 
-    <div class="p-3 flex-grow-1 overflow-auto">
+    <div class="app-content">
       <input
         ref="fileInput"
         type="file"
@@ -51,42 +54,62 @@ onBeforeUnmount(() => {
       <div class="photo-picker mb-3" @click="pickPhoto">
         <img v-if="photoPreviewUrl" :src="photoPreviewUrl" class="photo-preview" alt="Selected photo" />
         <div v-else class="photo-placeholder text-muted">
-          <div class="fs-1 mb-1">📷</div>
-          <p class="small mb-0">Tap to add a photo</p>
+          <div class="camera-dot">+</div>
+          <p class="fw-bold mb-1">Add a photo</p>
+          <p class="small mb-0">Trace can spot faces, places, text, and hidden data.</p>
         </div>
       </div>
 
       <textarea
         v-model="caption"
         class="form-control"
-        rows="3"
-        placeholder="Write a caption… (optional)"
+        rows="4"
+        placeholder="Write a caption (optional)"
       ></textarea>
 
       <p v-if="error" class="text-danger small mt-2 mb-0">{{ error }}</p>
     </div>
 
-    <div class="p-3 border-top">
-      <button class="btn btn-primary w-100" @click="share">Share</button>
+    <div class="app-action-bar">
+      <button class="btn btn-primary w-100" @click="share">Check before sharing</button>
     </div>
   </div>
 </template>
 
 <style scoped>
 .photo-picker {
-  height: 260px;
-  border-radius: 12px;
-  border: 2px dashed #ced4da;
+  min-height: 300px;
+  border-radius: 18px;
+  border: 2px dashed #b9c8dd;
   overflow: hidden;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f8f9fa;
+  background:
+    linear-gradient(135deg, rgba(47, 111, 237, 0.08), transparent),
+    #f7faff;
 }
 .photo-preview {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+.photo-placeholder {
+  max-width: 240px;
+  padding: 18px;
+  text-align: center;
+}
+.camera-dot {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  margin: 0 auto 12px;
+  border-radius: 18px;
+  background: #e7f0ff;
+  color: var(--trace-primary);
+  font-size: 2rem;
+  font-weight: 800;
 }
 </style>

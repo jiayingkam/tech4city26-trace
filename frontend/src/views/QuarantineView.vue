@@ -72,35 +72,57 @@ async function handleRelease() {
 </script>
 
 <template>
-  <div class="d-flex flex-column h-100">
-    <div class="border-bottom p-3 text-center fw-bold">Held for review</div>
+  <div class="app-screen">
+    <div class="app-header">
+      <h1 class="app-title">Pause and review</h1>
+      <p class="app-subtitle">This post has something worth checking first.</p>
+    </div>
 
-    <div class="p-3 flex-grow-1 overflow-auto text-center">
-      <img v-if="photoUrl" :src="photoUrl" class="w-100 rounded mb-3" alt="Your photo" />
+    <div class="app-content text-center">
+      <img v-if="photoUrl" :src="photoUrl" class="review-photo mb-3" alt="Your photo" />
 
-      <div v-if="resultMessage" class="alert alert-secondary small">{{ resultMessage }}</div>
+      <div v-if="resultMessage" class="coach-card small">{{ resultMessage }}</div>
       <template v-else>
-        <p class="text-danger fw-semibold mb-1">⏸ {{ quarantine.reason }}</p>
-        <p class="text-muted small mb-3">
-          Trace is holding this post for a moment before it can go out as-is.
-        </p>
-        <p class="small mb-0">
-          {{ expired ? 'You can post now.' : `Posting unlocks in ${formattedCountdown}` }}
-        </p>
+        <div class="pause-card trace-card">
+          <p class="status-chip warn mb-2">Review pause</p>
+          <p class="fw-bold mb-1">{{ quarantine.reason }}</p>
+          <p class="soft-note mb-3">
+            Take a breath and decide whether to edit, delete, or share it unchanged.
+          </p>
+          <p class="countdown mb-0">
+            {{ expired ? 'Posting is unlocked.' : `Posting unlocks in ${formattedCountdown}` }}
+          </p>
+        </div>
       </template>
 
       <p v-if="error" class="text-danger small mt-2">{{ error }}</p>
     </div>
 
-    <div v-if="!resultMessage" class="p-3 border-top d-flex flex-column gap-2">
+    <div v-if="!resultMessage" class="app-action-bar">
       <button class="btn btn-primary w-100" :disabled="busy" @click="handleEdit">Edit before sharing</button>
       <button class="btn btn-outline-danger w-100" :disabled="busy" @click="handleDelete">Delete this post</button>
       <button class="btn btn-outline-secondary w-100" :disabled="busy || !expired" @click="handleRelease">
         Post anyway
       </button>
     </div>
-    <div v-else class="p-3 border-top">
+    <div v-else class="app-action-bar">
       <button class="btn btn-outline-secondary w-100" @click="$emit('restart')">Back</button>
     </div>
   </div>
 </template>
+
+<style scoped>
+.review-photo {
+  width: 100%;
+  border: 1px solid var(--trace-line);
+  border-radius: 18px;
+}
+.pause-card {
+  padding: 18px;
+}
+.countdown {
+  color: var(--trace-ink);
+  font-size: 1.15rem;
+  font-weight: 900;
+}
+</style>

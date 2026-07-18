@@ -22,7 +22,9 @@ function close() {
       aria-label="Menu"
       @click="toggle"
     >
-      ☰
+      <span></span>
+      <span></span>
+      <span></span>
     </button>
 
     <div v-if="open" class="hamburger-backdrop" @click="close"></div>
@@ -42,16 +44,29 @@ function close() {
    viewport. */
 .hamburger-wrap {
   position: absolute;
-  top: 14px;
-  left: 14px;
+  top: 12px;
+  left: 12px;
   z-index: 20;
 }
 .hamburger-btn {
-  border: none;
-  background: none;
-  font-size: 1.25rem;
-  line-height: 1;
-  padding: 4px 6px;
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(47, 111, 237, 0.14);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 8px 18px rgba(23, 34, 53, 0.08);
+}
+.hamburger-btn span {
+  display: block;
+  width: 16px;
+  height: 2px;
+  margin: 0 auto;
+  border-radius: 99px;
+  background: var(--trace-ink);
 }
 .hamburger-backdrop {
   position: absolute;
@@ -63,11 +78,11 @@ function close() {
 }
 .hamburger-dropdown {
   position: absolute;
-  top: 34px;
+  top: 44px;
   left: 0;
   background: white;
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  border-radius: 8px;
+  border: 1px solid var(--trace-line);
+  border-radius: 12px;
   min-width: 160px;
   overflow: hidden;
   z-index: 21;
@@ -78,10 +93,11 @@ function close() {
   text-align: left;
   border: none;
   background: none;
-  padding: 10px 14px;
+  padding: 12px 14px;
   font-size: 0.9rem;
+  font-weight: 700;
 }
 .dropdown-item-btn:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: #f3f7ff;
 }
 </style>
