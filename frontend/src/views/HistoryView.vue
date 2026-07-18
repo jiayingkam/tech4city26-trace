@@ -123,7 +123,11 @@ function handleCardTap(post) {
 }
 function toggleSelected(draftId) {
   const next = new Set(selectedIds.value)
-  next.has(draftId) ? next.delete(draftId) : next.add(draftId)
+  if (next.has(draftId)) {
+    next.delete(draftId)
+  } else {
+    next.add(draftId)
+  }
   selectedIds.value = next
 }
 function toggleSelectAll() {
@@ -219,13 +223,14 @@ function cooldownRemaining(post) {
     @restart="closeSubScreen"
   />
 
-  <div v-else class="d-flex flex-column h-100">
-    <div class="border-bottom p-3 text-center fw-bold position-relative">
+  <div v-else class="app-screen">
+    <div class="app-header">
       <HamburgerMenu @history="$emit('history')" @settings="$emit('settings')" @logout="$emit('logout')" />
-      History
+      <h1 class="app-title">History</h1>
+      <p class="app-subtitle">Review past scans and cleanups.</p>
     </div>
 
-    <div class="d-flex border-bottom">
+    <div class="history-tabs">
       <button
         v-for="tab in TABS"
         :key="tab.key"
@@ -237,8 +242,8 @@ function cooldownRemaining(post) {
       </button>
     </div>
 
-    <div class="p-3 flex-grow-1 overflow-auto">
-      <p v-if="retentionMode" class="text-center text-muted small fst-italic mb-3">
+    <div class="app-content">
+      <p v-if="retentionMode" class="text-center soft-note mb-3">
         Auto-delete after 3 months: {{ retentionMode === 'auto_expire' ? 'On' : 'Off' }}
       </p>
 
@@ -266,9 +271,9 @@ function cooldownRemaining(post) {
         </div>
       </div>
 
-      <div v-if="loading" class="text-center text-muted small py-4">Loading…</div>
+      <div v-if="loading" class="empty-state">Loading…</div>
       <p v-else-if="error" class="text-danger small">{{ error }}</p>
-      <div v-else-if="posts.length === 0" class="text-center text-muted small py-4">Nothing here yet.</div>
+      <div v-else-if="posts.length === 0" class="empty-state trace-card">Nothing here yet.</div>
 
       <div
         v-for="post in posts"
@@ -282,14 +287,14 @@ function cooldownRemaining(post) {
       >
         <div class="d-flex justify-content-between align-items-start">
           <div>
-            <div class="small">{{ formatDateTime(post.captured_at) }}</div>
+            <div class="soft-note">{{ formatDateTime(post.captured_at) }}</div>
             <div class="fw-semibold" :class="`status-${post.status}`">
               {{ STATUS_LABELS[post.status] }}
               <span v-if="post.status === 'quarantined'" class="text-muted small fw-normal">
                 {{ cooldownRemaining(post) }}
               </span>
             </div>
-            <div class="small fst-italic text-muted mt-1">{{ post.summary }}</div>
+            <div class="small text-muted mt-1">{{ post.summary }}</div>
           </div>
           <img v-if="thumbnails[post.draft_id]" :src="thumbnails[post.draft_id]" class="thumb" alt="" />
           <div v-else class="thumb thumb-placeholder">🖼</div>
@@ -306,7 +311,7 @@ function cooldownRemaining(post) {
       </div>
     </div>
 
-    <div class="p-3 border-top">
+    <div class="app-action-bar">
       <button class="btn btn-outline-secondary w-100" @click="$emit('back')">Back</button>
     </div>
   </div>
@@ -315,41 +320,47 @@ function cooldownRemaining(post) {
 <style scoped>
 .tab-btn {
   border: none;
-  background: none;
-  padding: 8px 4px;
+  background: transparent;
+  padding: 10px 6px;
   font-size: 0.8rem;
-  color: #6c757d;
+  color: var(--trace-muted);
   border-bottom: 2px solid transparent;
 }
 .tab-btn.active {
-  color: #0d6efd;
-  border-bottom-color: #0d6efd;
-  font-weight: 600;
+  color: var(--trace-primary);
+  border-bottom-color: var(--trace-primary);
+  font-weight: 800;
+}
+.history-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--trace-line);
+  background: #fff;
 }
 .post-card {
   position: relative;
-  border: 1px solid #dee2e6;
-  border-radius: 10px;
-  padding: 12px 14px;
+  border: 1px solid var(--trace-line);
+  border-radius: 14px;
+  padding: 14px;
+  background: #fff;
   user-select: none;
   touch-action: manipulation;
 }
 .post-card.selected {
-  border-color: #0d6efd;
-  background: rgba(13, 110, 253, 0.05);
+  border-color: var(--trace-primary);
+  background: #f3f7ff;
 }
 .post-card.tappable {
   cursor: pointer;
-  border-color: #0d6efd;
+  border-color: rgba(47, 111, 237, 0.45);
 }
-.status-accepted { color: #198754; }
-.status-rejected { color: #dc3545; }
-.status-quarantined { color: #b8860b; }
-.status-pending { color: #6c757d; }
+.status-accepted { color: var(--trace-success); }
+.status-rejected { color: var(--trace-danger); }
+.status-quarantined { color: #936509; }
+.status-pending { color: var(--trace-primary-dark); }
 .thumb {
   width: 56px;
   height: 56px;
-  border-radius: 8px;
+  border-radius: 12px;
   object-fit: cover;
   flex-shrink: 0;
 }

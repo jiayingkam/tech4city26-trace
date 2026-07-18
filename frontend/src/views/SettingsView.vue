@@ -30,16 +30,17 @@ async function save() {
 </script>
 
 <template>
-  <div class="d-flex flex-column h-100">
-    <div class="border-bottom p-3 text-center fw-bold position-relative">
+  <div class="app-screen">
+    <div class="app-header">
       <HamburgerMenu @history="$emit('history')" @settings="$emit('settings')" @logout="$emit('logout')" />
-      Settings
+      <h1 class="app-title">Settings</h1>
+      <p class="app-subtitle">Choose how long Trace remembers scans.</p>
     </div>
 
-    <div class="p-3 flex-grow-1 overflow-auto">
-      <p class="fw-semibold small mb-2">How long should Trace keep your history?</p>
+    <div class="app-content">
+      <p class="fw-bold small mb-3">History retention</p>
 
-      <div class="form-check mb-2">
+      <div class="settings-option">
         <input
           id="mode-auto"
           v-model="retentionMode"
@@ -57,7 +58,7 @@ async function save() {
         </label>
       </div>
 
-      <div class="form-check mb-3">
+      <div class="settings-option">
         <input
           id="mode-manual"
           v-model="retentionMode"
@@ -78,7 +79,7 @@ async function save() {
       <p v-if="error" class="text-danger small mb-2">{{ error }}</p>
     </div>
 
-    <div class="p-3 border-top d-flex flex-column gap-2">
+    <div class="app-action-bar">
       <button class="btn btn-primary w-100" :disabled="saving" @click="save">
         {{ saving ? 'Saving…' : 'Save' }}
       </button>
@@ -86,3 +87,18 @@ async function save() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.settings-option {
+  display: flex;
+  gap: 10px;
+  padding: 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--trace-line);
+  border-radius: 14px;
+  background: #fff;
+}
+.settings-option .form-check-input {
+  margin-left: 0;
+}
+</style>

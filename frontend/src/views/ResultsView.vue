@@ -46,10 +46,13 @@ const hasFindings = computed(() => props.detections.length > 0)
 </script>
 
 <template>
-  <div class="d-flex flex-column h-100">
-    <div class="border-bottom p-3 text-center fw-bold">Scan results</div>
+  <div class="app-screen">
+    <div class="app-header">
+      <h1 class="app-title">Scan results</h1>
+      <p class="app-subtitle">{{ hasFindings ? 'A few details could use a second look.' : 'No personal details stood out.' }}</p>
+    </div>
 
-    <div class="p-3 flex-grow-1 overflow-auto">
+    <div class="app-content">
       <div v-if="photoUrl" class="photo-wrap mb-3">
         <img ref="imgEl" :src="photoUrl" class="w-100 d-block" alt="Your photo" @load="onImageLoad" />
         <div
@@ -62,19 +65,20 @@ const hasFindings = computed(() => props.detections.length > 0)
         </div>
       </div>
 
-      <div v-if="!hasFindings" class="text-center text-success py-4">
-        <div class="fs-1 mb-2">✅</div>
-        <p class="fw-semibold mb-0">Looks safe to share</p>
-        <p class="text-muted small">Trace didn't find any personal details in this post.</p>
+      <div v-if="!hasFindings" class="empty-state trace-card">
+        <span class="status-chip safe">Looks clear</span>
+        <p class="fw-bold mb-0">This post looks ready.</p>
+        <p class="soft-note mb-0">Trace did not find faces, places, contact info, or hidden photo data.</p>
       </div>
 
       <template v-else>
-        <div v-if="metadataFindings.length" class="alert alert-warning py-2 px-3 small mb-2">
-          <div v-for="(d, i) in metadataFindings" :key="i">📍 {{ d.detail }}</div>
+        <div v-if="metadataFindings.length" class="finding-panel warn mb-3">
+          <p class="status-chip warn mb-2">Hidden photo data</p>
+          <div v-for="(d, i) in metadataFindings" :key="i" class="small">{{ d.detail }}</div>
         </div>
 
-        <div v-if="imageFindings.length" class="mb-2">
-          <p class="fw-semibold small mb-1">Flagged in your photo</p>
+        <div v-if="imageFindings.length" class="finding-panel mb-3">
+          <p class="fw-bold small mb-2">In your photo</p>
           <ul class="list-unstyled small mb-0">
             <li v-for="(d, i) in imageFindings" :key="i" class="mb-1">
               <strong>{{ CATEGORY_LABELS[d.category] || d.category }}:</strong> {{ d.detail }}
@@ -82,8 +86,8 @@ const hasFindings = computed(() => props.detections.length > 0)
           </ul>
         </div>
 
-        <div v-if="textFindings.length" class="mb-2">
-          <p class="fw-semibold small mb-1">Flagged in your caption</p>
+        <div v-if="textFindings.length" class="finding-panel mb-3">
+          <p class="fw-bold small mb-2">In your caption</p>
           <ul class="list-unstyled small mb-0">
             <li v-for="(d, i) in textFindings" :key="i" class="mb-1">
               <strong>{{ d.category }}:</strong> {{ d.detail }}
@@ -91,7 +95,7 @@ const hasFindings = computed(() => props.detections.length > 0)
           </ul>
         </div>
 
-        <div v-if="teachableMoment" class="teachable-card mt-3">
+        <div v-if="teachableMoment" class="coach-card mt-3">
           <p class="eyebrow mb-1">Why this matters</p>
           <p class="fw-semibold mb-1">{{ teachableMoment.title }}</p>
           <p class="small mb-2">{{ teachableMoment.explanation }}</p>
@@ -100,8 +104,8 @@ const hasFindings = computed(() => props.detections.length > 0)
       </template>
     </div>
 
-    <div class="p-3 border-top d-flex flex-column gap-2">
-      <button v-if="hasFindings" class="btn btn-primary w-100" @click="$emit('continue')">Continue</button>
+    <div class="app-action-bar">
+      <button v-if="hasFindings" class="btn btn-primary w-100" @click="$emit('continue')">Fix the risky parts</button>
       <button class="btn btn-outline-secondary w-100" @click="$emit('restart')">Back</button>
     </div>
   </div>
@@ -110,38 +114,36 @@ const hasFindings = computed(() => props.detections.length > 0)
 <style scoped>
 .photo-wrap {
   position: relative;
-  border-radius: 12px;
+  border-radius: 18px;
   overflow: hidden;
   line-height: 0;
+  border: 1px solid var(--trace-line);
 }
 .finding-box {
   position: absolute;
-  border: 2px solid #dc3545;
-  border-radius: 4px;
+  border: 2px solid var(--trace-coral);
+  border-radius: 8px;
   pointer-events: none;
 }
 .finding-label {
   position: absolute;
   top: -1.4rem;
   left: 0;
-  background: #dc3545;
+  background: var(--trace-coral);
   color: #fff;
   font-size: 0.65rem;
   padding: 1px 6px;
-  border-radius: 4px 4px 0 0;
+  border-radius: 6px 6px 0 0;
   white-space: nowrap;
 }
-.teachable-card {
-  border: 1px solid #b9d8cf;
-  border-radius: 8px;
-  background: #eef8f5;
-  color: #173f35;
-  padding: 0.75rem;
+.finding-panel {
+  padding: 12px 14px;
+  border: 1px solid var(--trace-line);
+  border-radius: 14px;
+  background: #fff;
 }
-.eyebrow {
-  color: #2a7766;
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
+.finding-panel.warn {
+  border-color: #f3d48b;
+  background: #fffaf0;
 }
 </style>

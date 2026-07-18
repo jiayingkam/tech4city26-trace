@@ -356,10 +356,13 @@ async function copySuggested() {
 </script>
 
 <template>
-  <div class="d-flex flex-column h-100">
-    <div class="border-bottom p-3 text-center fw-bold">Clean up before sharing</div>
+  <div class="app-screen">
+    <div class="app-header">
+      <h1 class="app-title">Clean up</h1>
+      <p class="app-subtitle">Choose what to blur, remove, or rewrite.</p>
+    </div>
 
-    <div class="p-3 flex-grow-1 overflow-auto">
+    <div class="app-content">
       <div
         v-if="!confirmed && photoUrl"
         class="canvas-wrap mb-1"
@@ -380,21 +383,21 @@ async function copySuggested() {
         <div v-if="newBoxDraft" class="new-box" :style="boxStyle(newBoxDraft)"></div>
       </div>
       <img v-else-if="confirmed && cleanedUrl" :src="cleanedUrl" class="w-100 rounded mb-1" alt="Cleaned photo" />
-      <p v-if="confirmed" class="text-success small text-center mb-3">✅ Cleaned version</p>
+      <p v-if="confirmed" class="status-chip safe mx-auto mb-3">Cleaned version</p>
       <template v-else-if="photoUrl">
         <button class="btn btn-sm mb-2" :class="addMode ? 'btn-secondary' : 'btn-outline-primary'" @click="toggleAddMode">
-          {{ addMode ? 'Cancel' : '+ Mark a missed area' }}
+          {{ addMode ? 'Cancel marking' : 'Mark a missed area' }}
         </button>
-        <p v-if="addMode" class="text-muted small text-center mb-3">Drag on the photo to draw a box around it.</p>
-        <p v-else-if="editableBoxes.length" class="text-muted small text-center mb-3">
+        <p v-if="addMode" class="soft-note text-center mb-3">Drag on the photo to draw a box around it.</p>
+        <p v-else-if="editableBoxes.length" class="soft-note text-center mb-3">
           Drag a box to move it, or the corner handle to resize it.
         </p>
       </template>
       <div v-else class="mb-3"></div>
 
-      <div v-if="proposedEdits.length" class="mb-3">
-        <p class="fw-semibold small mb-2">Suggested fixes</p>
-        <div v-for="edit in proposedEdits" :key="edit.edit_id" class="form-check form-switch mb-2">
+      <div v-if="proposedEdits.length" class="fix-panel mb-3">
+        <p class="fw-bold small mb-2">Suggested fixes</p>
+        <div v-for="edit in proposedEdits" :key="edit.edit_id" class="form-check form-switch fix-row">
           <input
             :id="edit.edit_id"
             class="form-check-input"
@@ -416,7 +419,7 @@ async function copySuggested() {
             @keyup.esc="cancelRename(); $event.target.blur()"
             @blur="saveRename(edit)"
           />
-          <label v-else class="form-check-label small" :for="edit.edit_id">
+          <label v-else class="form-check-label small fw-semibold" :for="edit.edit_id">
             {{ editLabel(edit) }}
             <button
               v-if="isManualEdit(edit) && !confirmed"
@@ -430,10 +433,10 @@ async function copySuggested() {
         </div>
       </div>
 
-      <div v-if="redaction" class="mb-3">
-        <p class="fw-semibold small mb-1">Caption</p>
+      <div v-if="redaction" class="fix-panel mb-3">
+        <p class="fw-bold small mb-1">Caption</p>
         <p class="text-muted small text-decoration-line-through mb-1">{{ redaction.original_caption }}</p>
-        <p class="small mb-2">{{ redaction.suggested_caption }}</p>
+        <p class="small mb-2 suggested-caption">{{ redaction.suggested_caption }}</p>
         <button class="btn btn-sm btn-outline-secondary" @click="copySuggested">
           {{ copied ? 'Copied!' : 'Copy suggested caption' }}
         </button>
@@ -442,14 +445,14 @@ async function copySuggested() {
       <p v-if="error" class="text-danger small">{{ error }}</p>
     </div>
 
-    <div class="p-3 border-top d-flex flex-column gap-2">
+    <div class="app-action-bar">
       <button
         v-if="!confirmed && hasPendingImageEdits"
         class="btn btn-primary w-100"
         :disabled="confirming"
         @click="confirm"
       >
-        {{ confirming ? 'Cleaning up…' : 'Confirm & clean up' }}
+        {{ confirming ? 'Cleaning up…' : 'Create cleaned copy' }}
       </button>
       <a v-else-if="confirmed" class="btn btn-success w-100" :href="cleanedUrl" download="trace_clean_photo.jpg">
         Download cleaned photo
@@ -464,14 +467,17 @@ async function copySuggested() {
   position: relative;
   line-height: 0;
   touch-action: none;
+  border: 1px solid var(--trace-line);
+  border-radius: 18px;
+  overflow: hidden;
 }
 .canvas-wrap.add-mode {
   cursor: crosshair;
 }
 .edit-box {
   position: absolute;
-  border: 2px solid #0d6efd;
-  border-radius: 4px;
+  border: 2px solid var(--trace-primary);
+  border-radius: 8px;
   cursor: move;
   touch-action: none;
 }
@@ -481,7 +487,7 @@ async function copySuggested() {
   bottom: -7px;
   width: 14px;
   height: 14px;
-  background: #0d6efd;
+  background: var(--trace-primary);
   border: 2px solid #fff;
   border-radius: 50%;
   cursor: nwse-resize;
@@ -489,9 +495,27 @@ async function copySuggested() {
 }
 .new-box {
   position: absolute;
-  border: 2px dashed #198754;
-  border-radius: 4px;
-  background: rgba(25, 135, 84, 0.15);
+  border: 2px dashed var(--trace-mint);
+  border-radius: 8px;
+  background: rgba(21, 165, 139, 0.15);
   pointer-events: none;
+}
+.fix-panel {
+  padding: 12px 14px;
+  border: 1px solid var(--trace-line);
+  border-radius: 14px;
+  background: #fff;
+}
+.fix-row {
+  padding: 8px 0;
+  border-top: 1px solid #eef2f7;
+}
+.fix-row:first-of-type {
+  border-top: 0;
+}
+.suggested-caption {
+  padding: 10px;
+  border-radius: 12px;
+  background: #f4fbf8;
 }
 </style>
