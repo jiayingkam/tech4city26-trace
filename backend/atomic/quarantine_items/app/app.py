@@ -37,24 +37,36 @@ def create_app() -> Flask:
     from .routes import quarantine_bp
     app.register_blueprint(quarantine_bp)
 
-    with app.app_context():
-        wait_for_db(db.engine)
-        db.create_all()
-
     @app.before_request
     def _wait_for_db_before_request():
         # Let health/swagger checks respond immediately even if the DB is
-        # still resuming, so Render doesn't treat a resuming DB as a dead
-        # service and restart it.
-        if request.path == "/health" or request.path.startswith("/swagger"):
+        # still resuming, so Cloud Run doesn't treat a resuming DB as a dead
+        # service and restart it. CORS preflight (OPTIONS) never touches the
+        # database either — no reason to make the browser wait on it before
+        # it's even sent the real request.
+        if request.method == "OPTIONS" or request.path == "/health" or request.path.startswith("/swagger"):
             return
         wait_for_db(db.engine)
+
+    @app.cli.command("init-db")
+    def init_db():
+        # Schema setup used to run on every cold start via app.app_context()
+        # here, which meant every boot paid for both a DB wake-up wait and a
+        # full schema re-check. It only needs to happen once ever, so it's a
+        # manual command now: `flask --app app.app:create_app init-db`.
+        wait_for_db(db.engine)
+        db.create_all()
 
     @app.route("/swagger")
     def get_swagger():
         swag = swagger(app)
         swag["info"]["version"] = "1.0"
         swag["info"]["title"] = "Quarantine Items API"
+        # Lets Swagger UI's "Authorize" button attach the bearer token that
+        # routes declare via `security: - BearerAuth: []` in their docstrings.
+        swag["securityDefinitions"] = {
+            "BearerAuth": {"type": "apiKey", "name": "Authorization", "in": "header"}
+        }
         return jsonify(swag)
 
     swaggerui_bp = get_swaggerui_blueprint(

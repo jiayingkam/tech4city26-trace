@@ -35,27 +35,30 @@ def _get_draft_detections(draft_id: str) -> list[dict]:
 
 @bp.post("/users/<owner_id>/mosaic-risk")
 def check_mosaic_risk(owner_id):
-    """
+    """Analyse cumulative disclosure risk for a draft against the user's post history.
+    Extracts typed observations from the draft's text, combines them with any image
+    detections already recorded for the draft, and estimates how much this post narrows
+    the author's anonymity set relative to their existing posts.
     ---
     tags:
-      - mosaic
-    summary: Analyse cumulative disclosure risk for a draft against the user's post history.
-    description: >
-      Extracts typed observations from the draft's text, combines them with any image
-      detections already recorded for the draft, and estimates how much this post narrows
-      the author's anonymity set relative to their existing posts.
+      - Mosaic Risk
+    security:
+      - BearerAuth: []
+    consumes:
+      - application/json
     parameters:
       - in: path
         name: owner_id
-        required: true
         type: string
+        required: true
         description: UUID of the post owner.
       - in: body
         name: body
         required: true
         schema:
           type: object
-          required: [draft_id]
+          required:
+            - draft_id
           properties:
             draft_id:
               type: string
@@ -63,6 +66,64 @@ def check_mosaic_risk(owner_id):
     responses:
       200:
         description: Risk assessment with anonymity delta and per-observation attribution.
+        schema:
+          id: MosaicRiskAssessment
+          type: object
+          properties:
+            draft_id:
+              type: string
+            owner_id:
+              type: string
+            risk_level:
+              type: string
+              description: '"none" when no locating observations were found; otherwise "low", "medium", or "high".'
+            message:
+              type: string
+              description: Present only when no locating observations were found.
+            observations:
+              type: array
+              items:
+                type: object
+                properties:
+                  kind:
+                    type: string
+                    enum: [location, temporal, affiliation, physical, relation, possession]
+                  target:
+                    type: string
+                    enum: [home, work, routine, identity, network]
+                  surface:
+                    type: string
+                  entity:
+                    type: string
+                  constraint:
+                    type: string
+                  precision:
+                    type: number
+            prior_post_count:
+              type: integer
+            k_before:
+              type: integer
+              description: Estimated anonymity set size before this draft. Absent when no observations were found.
+            k_after:
+              type: integer
+              description: Estimated anonymity set size including this draft. Absent when no observations were found.
+            delta_bits:
+              type: number
+            top_contributors:
+              type: array
+              items:
+                type: object
+                properties:
+                  surface:
+                    type: string
+                  constraint:
+                    type: string
+                  kind:
+                    type: string
+                  target:
+                    type: string
+                  contribution_bits:
+                    type: number
       400:
         description: draft_id missing from request body.
       403:
@@ -127,4 +188,13 @@ def check_mosaic_risk(owner_id):
 
 @bp.get("/health")
 def health():
+    """Liveness check.
+    Unauthenticated — polled frequently by the container orchestrator.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: The service process is alive.
+    """
     return jsonify({"status": "ok"}), 200

@@ -4,7 +4,7 @@ A microservices backend built with Flask, organised into **atomic** (CRUD) and *
 
 ---
 
-## Service Port Mappings (Not finalised)
+## Service Port Mappings
 
 | Port | Service                   | Type      |
 | ---- | ------------------------- | --------- |
@@ -23,6 +23,9 @@ A microservices backend built with Flask, organised into **atomic** (CRUD) and *
 | 5012 | Scan Draft                | composite |
 | 5013 | Update Exposure Profile   | composite |
 | 5014 | Upload Post               | composite |
+| 5015 | Manage History            | composite |
+
+These ports are only for local Docker Compose. In production each service is deployed separately on Google Cloud Run, so the frontend is instead pointed at whatever URL each one gets there (see "Running the Frontend" below).
 
 ---
 
@@ -31,6 +34,8 @@ A microservices backend built with Flask, organised into **atomic** (CRUD) and *
 - [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/)
 - Python 3.12 (if running services locally without Docker)
 - [Node.js](https://nodejs.org/) `^20.19.0` or `>=22.12.0` (only needed to run the frontend — see below)
+- A reachable Azure SQL database. The `azure_db` service in `docker-compose.yml` doesn't run a database itself — it's a healthcheck container that logs into the real Azure SQL DB below and gates every other service's startup on that succeeding, so **local Docker Compose still talks to a real remote database**, not a local one.
+- A GCP service-account key with Cloud Storage access, saved under `secret/`.
 - A `.env` file in the project root with the following variables:
 
 ```env
@@ -41,11 +46,13 @@ DB_PASSWORD=<db-password>
 OPENAI_API_KEY=<your-openai-api-key>
 CLOUD_VISION_KEY=<your-google-cloud-vision-api-key>
 CLOUD_VIDEO_INTELLIGENCE_KEY=<your-google-cloud-video-intelligence-api-key>
+FRONTEND_ORIGIN=<comma-separated allowed CORS origins, e.g. https://your-frontend.vercel.app>
+JWT_SECRET_KEY=<secret used to sign/verify login tokens>
+INTERNAL_API_KEY=<shared secret for service-to-service calls under /internal/>
+GCS_BUCKET=<google-cloud-storage-bucket-name>
 ```
 
-`CLOUD_VISION_KEY` is a plain Google Cloud API key (Cloud Vision API enabled on the project) — used by `scan_draft` for OCR text/location detection in photos.
-
-## Running the Program
+## Running the Program Locally
 
 ### With Docker (recommended)
 
@@ -56,32 +63,13 @@ cd backend
 docker compose up --build
 ```
 
-To run in the background:
-
-```bash
-cd backend
-docker compose up --build -d
-```
-
 To stop all services:
 
 ```bash
 docker compose down
 ```
 
-### Running a single service locally
-
-```bash
-cd backend/atomic/users        # replace with the target service directory
-pip install -r requirements.txt
-flask run
-```
-
----
-
-## Running the Frontend
-
-The Vue app is what actually drives Feature 1 (Pre-Post Scan) and Feature 2 (One-Tap Remediation & Quarantine) — the backend alone has no UI beyond Swagger. It needs the backend stack running (see above) at the same time, since it calls the composite services directly over HTTP.
+## Running the Frontend Locally
 
 ```bash
 cd frontend
@@ -89,7 +77,7 @@ npm install
 npm run dev
 ```
 
-Opens at `http://localhost:3000`. The upload/scan/remediation flow calls `upload_post` (5014), `scan_draft` (5012), `detections` (5003), `remediate_content` (5011), and `quarantine_high_risk` (5010) directly from the browser — CORS is already enabled on each.
+Opens at `http://localhost:3000`. The upload/scan/remediation flow calls `upload_post` (5014), `scan_draft` (5012), `detections` (5003), `remediate_content` (5011), `quarantine_high_risk` (5010), `generate_teachable_moment` (5009), and `manage_history` (5015) directly from the browser — CORS is already enabled on each.
 
 ---
 

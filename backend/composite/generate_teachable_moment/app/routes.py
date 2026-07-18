@@ -75,7 +75,53 @@ def _primary_detection(detections):
 
 @bp.post("/drafts/<draft_id>/teachable-moment")
 def generate_teachable_moment(draft_id):
-    """Return a short, template-based micro-lesson for the riskiest finding."""
+    """Return a short, template-based micro-lesson for the riskiest finding.
+    Fetches the draft's detections and turns the highest-priority finding into a short,
+    template-based micro-lesson. Returns a generic "looks safe" lesson when there are no detections.
+    ---
+    tags:
+      - Teachable Moment
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: draft_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: The generated micro-lesson.
+        schema:
+          id: TeachableMoment
+          type: object
+          properties:
+            draft_id:
+              type: string
+            title:
+              type: string
+            explanation:
+              type: string
+            safer_action:
+              type: string
+            discussion_prompt:
+              type: string
+            category:
+              type: string
+              description: The detection category the lesson was generated for, or null when no detections were found.
+            source_type:
+              type: string
+              description: Present only when a detection drove the lesson.
+            exposure_score:
+              type: number
+            detail:
+              type: string
+              description: Present only when a detection drove the lesson.
+            detection_count:
+              type: integer
+              description: Present only when a detection drove the lesson.
+      502:
+        description: Failed to fetch detections from the detections service.
+    """
     resp = requests.get(
         f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections",
         headers=forwarded_auth_headers(request),
@@ -112,4 +158,13 @@ def generate_teachable_moment(draft_id):
 # it will stop responding to /health.
 @bp.get("/health")
 def health():
+    """Liveness check.
+    Unauthenticated — polled frequently by the container orchestrator.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: The service process is alive.
+    """
     return jsonify({"status": "ok"}), 200

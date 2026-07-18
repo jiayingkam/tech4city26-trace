@@ -11,4 +11,13 @@ bp = Blueprint("exposure_profiles", __name__)
 
 @bp.get("/health")
 def health():
+    """Liveness check.
+    Unauthenticated — polled frequently by the container orchestrator, so it must respond even while the database is unreachable.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: The service process is alive.
+    """
     return jsonify({"status": "ok"}), 200

@@ -279,8 +279,8 @@ export async function updateRetentionMode(userId, retentionMode) {
 }
 
 // One card per post — filter is 'all' | 'accepted' | 'rejected' | 'quarantined'.
-export async function getHistory(filter = 'all') {
-  const res = await fetchWithRetry(`${MANAGE_HISTORY_URL}/history?filter=${filter}`)
+export async function getHistory(filter = 'all', onRetry) {
+  const res = await fetchWithRetry(`${MANAGE_HISTORY_URL}/history?filter=${filter}`, undefined, { onRetry })
   return parseOrThrow(res)
 }
 

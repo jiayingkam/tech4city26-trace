@@ -1,4 +1,5 @@
 import pytest
+import requests
 from unittest.mock import MagicMock, patch
 from flask import Flask
 from flask_jwt_extended import create_access_token
@@ -77,7 +78,7 @@ def _history_fake_get(drafts, detections_by_draft=None, quarantine_by_draft=None
     detections_by_draft = detections_by_draft or {}
     quarantine_by_draft = quarantine_by_draft or {}
 
-    def fake_get(url, headers=None, params=None):
+    def fake_get(url, headers=None, params=None, timeout=None):
         if url.endswith("/users/user_abc/drafts"):
             return _resp(200, drafts)
         for draft_id, dets in detections_by_draft.items():
@@ -164,6 +165,24 @@ def test_get_history_filters_by_status(client, auth_headers, mock_requests):
     assert [p["draft_id"] for p in response.json] == ["d1"]
 
 
+def test_get_history_returns_503_when_a_downstream_service_times_out(client, auth_headers, mock_requests):
+    # e.g. detections/quarantine_items still waking their DB from Azure SQL
+    # auto-pause — should surface as a retryable 503, not an unhandled 500.
+    drafts = [_draft("d1", "2026-01-01T00:00:00+00:00")]
+
+    def fake_get(url, headers=None, params=None, timeout=None):
+        if url.endswith("/users/user_abc/drafts"):
+            return _resp(200, drafts)
+        raise requests.exceptions.ReadTimeout("timed out")
+
+    mock_requests.get.side_effect = fake_get
+    mock_requests.exceptions = requests.exceptions
+
+    response = client.get("/history", headers=auth_headers)
+
+    assert response.status_code == 503
+
+
 def test_delete_history_requires_at_least_one_id(client, auth_headers, mock_requests):
     response = client.post("/history/delete", json={}, headers=auth_headers)
     assert response.status_code == 400
@@ -222,7 +241,7 @@ def test_sweep_expired_only_deletes_drafts_past_the_window(client, mock_requests
         old_draft = {"draft_id": "old", "captured_at": "2020-01-01T00:00:00+00:00"}
         new_draft = {"draft_id": "new", "captured_at": "2099-01-01T00:00:00+00:00"}
 
-        def fake_get(url, headers=None, params=None):
+        def fake_get(url, headers=None, params=None, timeout=None):
             if url.endswith("/internal/users"):
                 return _resp(200, [{"user_id": USER_ID, "retention_mode": "auto_expire"}])
             if url.endswith(f"/users/{USER_ID}/drafts"):

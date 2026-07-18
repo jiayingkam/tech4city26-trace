@@ -27,6 +27,90 @@ def _missing_required(data, fields):
 # yr functions/routes here
 @detections_bp.route("/detections", methods=["POST"])
 def create_detection():
+    """Create a detection.
+    Records a flagged piece of PII/exposure found in a content draft by a scanner. owner_id is stamped from the authenticated caller's token, never taken from the request body.
+    ---
+    tags:
+      - Detections
+    security:
+      - BearerAuth: []
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - draft_id
+            - category
+            - source_type
+            - exposure_score
+          properties:
+            draft_id:
+              type: string
+            category:
+              type: string
+              enum: [face, location, document, metadata, contact, financial, credentials]
+            source_type:
+              type: string
+              enum: [text, image, video]
+            exposure_score:
+              type: integer
+              description: Integer from 1 to 5.
+              minimum: 1
+              maximum: 5
+            confidence:
+              type: number
+              format: float
+              description: 0.0-1.0
+            model_version:
+              type: string
+              example: vlm-0.3
+            detail:
+              type: string
+              description: One-line plain-language explanation.
+            bounding_region:
+              type: object
+              description: '{"x":120,"y":340,"w":80,"h":30}, null for text/metadata detections.'
+    responses:
+      201:
+        description: Detection created.
+        schema:
+          id: Detection
+          type: object
+          properties:
+            detection_id:
+              type: string
+            draft_id:
+              type: string
+            owner_id:
+              type: string
+            resolution:
+              type: string
+              description: null (pending), "accepted", or "rejected".
+            category:
+              type: string
+            source_type:
+              type: string
+            exposure_score:
+              type: integer
+            confidence:
+              type: number
+              format: float
+            model_version:
+              type: string
+            detail:
+              type: string
+            bounding_region:
+              type: object
+            created_at:
+              type: string
+              format: date-time
+      400:
+        description: Request body is not a JSON object, a required field is missing, category/source_type is invalid, or exposure_score is not an integer from 1 to 5.
+    """
     data, error = _json_body()
     if error:
         return error
@@ -59,6 +143,26 @@ def create_detection():
 
 @detections_bp.route("/drafts/<draft_id>/detections", methods=["GET"])
 def list_detections(draft_id):
+    """List all detections for a draft.
+    Filtered by both draft_id and the authenticated caller's owner_id — a draft owned by someone else returns an empty list rather than a 403, to avoid leaking whether the draft_id exists.
+    ---
+    tags:
+      - Detections
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: draft_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: The draft's detections.
+        schema:
+          type: array
+          items:
+            $ref: "#/definitions/Detection"
+    """
     # Filtering by owner_id too (not just draft_id) rather than fetching then
     # checking: a mismatch here just means "not your draft", which reads the
     # same to the caller as "no detections yet" — nothing to distinguish or
@@ -71,6 +175,27 @@ def list_detections(draft_id):
 
 @detections_bp.route("/detections/<detection_id>", methods=["GET"])
 def get_detection(detection_id):
+    """Get a detection by id.
+    ---
+    tags:
+      - Detections
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: detection_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: The detection.
+        schema:
+          $ref: "#/definitions/Detection"
+      403:
+        description: The detection belongs to a different user.
+      404:
+        description: No detection with that id exists.
+    """
     detection = db.session.get(Detection, detection_id)
     if detection is None:
         return jsonify({"error": "detection not found"}), 404
@@ -81,6 +206,45 @@ def get_detection(detection_id):
 
 @detections_bp.route("/detections/<detection_id>", methods=["PATCH"])
 def update_detection(detection_id):
+    """Update a detection's detail and/or resolution.
+    Only detail and resolution are mutable, and at least one of them must be provided. Setting resolution to null clears it back to "pending" (e.g. restoring a reverted edit).
+    ---
+    tags:
+      - Detections
+    security:
+      - BearerAuth: []
+    consumes:
+      - application/json
+    parameters:
+      - in: path
+        name: detection_id
+        type: string
+        required: true
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            detail:
+              type: string
+              description: Non-empty string, 255 characters or fewer.
+            resolution:
+              type: string
+              enum: [accepted, rejected]
+              description: Set to null to clear back to pending.
+    responses:
+      200:
+        description: The updated detection.
+        schema:
+          $ref: "#/definitions/Detection"
+      400:
+        description: Request body is not a JSON object, neither detail nor resolution was provided, detail is empty/too long, or resolution is invalid.
+      403:
+        description: The detection belongs to a different user.
+      404:
+        description: No detection with that id exists.
+    """
     detection = db.session.get(Detection, detection_id)
     if detection is None:
         return jsonify({"error": "detection not found"}), 404
@@ -114,6 +278,25 @@ def update_detection(detection_id):
 
 @detections_bp.route("/detections/<detection_id>", methods=["DELETE"])
 def delete_detection(detection_id):
+    """Delete a detection.
+    ---
+    tags:
+      - Detections
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: detection_id
+        type: string
+        required: true
+    responses:
+      204:
+        description: Detection deleted.
+      403:
+        description: The detection belongs to a different user.
+      404:
+        description: No detection with that id exists.
+    """
     detection = db.session.get(Detection, detection_id)
     if detection is None:
         return jsonify({"error": "detection not found"}), 404
@@ -129,6 +312,22 @@ def delete_detection(detection_id):
 # for a draft with many flagged detections.
 @detections_bp.route("/drafts/<draft_id>/detections", methods=["DELETE"])
 def delete_detections_for_draft(draft_id):
+    """Delete all detections for a draft.
+    Bulk variant for cascading a whole draft's deletion (manage_history's selective delete and retention sweep) — avoids N individual DELETE calls for a draft with many flagged detections. Only detections owned by the authenticated caller are deleted.
+    ---
+    tags:
+      - Detections
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: draft_id
+        type: string
+        required: true
+    responses:
+      204:
+        description: Matching detections deleted (no-op if there were none).
+    """
     stmt = db.select(Detection).filter_by(draft_id=draft_id, owner_id=get_jwt_identity())
     detections = db.session.scalars(stmt).all()
     for detection in detections:
@@ -141,4 +340,13 @@ def delete_detections_for_draft(draft_id):
 # it will stop responding to /health.
 @detections_bp.get("/health")
 def health():
+    """Liveness check.
+    Unauthenticated — polled frequently by the container orchestrator, so it must respond even while the database is unreachable.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: The service process is alive.
+    """
     return jsonify({"status": "ok"}), 200
