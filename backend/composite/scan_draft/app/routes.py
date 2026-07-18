@@ -101,6 +101,83 @@ def run_scan(draft_id):
 
 @bp.route("/drafts/<draft_id>/scan", methods=["POST"])
 def scan_draft_endpoint(draft_id):
+    """Run every scanner against a draft and record what they find.
+    Runs the caption LLM scan and, for images, EXIF/GPS extraction plus the
+    OCR and vision (LLM) scanners — each scanner call can be slow, so this
+    endpoint may take several seconds to respond. Always re-scans, even if
+    detections already exist for this draft; POST /drafts/{draft_id}/process
+    is the endpoint that scans only if nothing's there yet.
+    ---
+    tags:
+      - Scan Draft
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: draft_id
+        type: string
+        required: true
+    responses:
+      201:
+        description: Scan finished; detections (if any) were recorded.
+        schema:
+          type: object
+          properties:
+            draft_id:
+              type: string
+            detections:
+              type: array
+              items:
+                type: object
+                properties:
+                  detection_id:
+                    type: string
+                  draft_id:
+                    type: string
+                  owner_id:
+                    type: string
+                  resolution:
+                    type: string
+                    enum: [accepted, rejected]
+                    description: Null until a human reviews the detection.
+                  category:
+                    type: string
+                    enum: [face, location, document, metadata, contact, financial]
+                  source_type:
+                    type: string
+                    enum: [text, image, video]
+                  exposure_score:
+                    type: integer
+                    description: 1 (low risk) to 5 (high risk).
+                  confidence:
+                    type: number
+                    format: float
+                  model_version:
+                    type: string
+                  detail:
+                    type: string
+                  bounding_region:
+                    type: object
+                    description: Pixel region to blur, as {x, y, w, h}. Null for text/metadata findings with nothing to localize.
+                    properties:
+                      x:
+                        type: integer
+                      y:
+                        type: integer
+                      w:
+                        type: integer
+                      h:
+                        type: integer
+                  created_at:
+                    type: string
+                    format: date-time
+      404:
+        description: No draft with that id exists.
+      501:
+        description: The draft's content_type is "video" — video scanning is not yet supported.
+      502:
+        description: Failed to fetch the draft from content_drafts, or failed to record a detection with the detections service.
+    """
     created, error = run_scan(draft_id)
     if error:
         return error
@@ -109,6 +186,62 @@ def scan_draft_endpoint(draft_id):
 
 @bp.route("/drafts/<draft_id>/process", methods=["POST"])
 def process_draft(draft_id):
+    """Scan a draft if needed, then route it to quarantine or auto-remediation.
+    Scans the draft only if it has no detections yet, reusing the results of
+    an earlier scan otherwise — this is the endpoint callers should hit after
+    upload rather than calling /scan directly. A first-time call on an
+    unscanned draft pays the same LLM/vision scan cost as
+    POST /drafts/{draft_id}/scan and can take several seconds. Any detection
+    at exposure_score >= 4 holds the whole draft for human review
+    (quarantine); otherwise every detection is routed to automatic
+    remediation.
+    ---
+    tags:
+      - Scan Draft
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: draft_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: Either nothing was detected ("clear") or every detection was auto-remediated ("remediated").
+        schema:
+          type: object
+          properties:
+            draft_id:
+              type: string
+            outcome:
+              type: string
+              enum: [clear, remediated]
+            message:
+              type: string
+              description: Present only for the "clear" outcome.
+            remediation:
+              type: object
+              description: Present only for the "remediated" outcome. The remediation result, as returned by the remediate_content service.
+      201:
+        description: A detection at exposure_score >= 4 was found; the draft was put on hold for human review.
+        schema:
+          type: object
+          properties:
+            draft_id:
+              type: string
+            outcome:
+              type: string
+              enum: [quarantined]
+            quarantine:
+              type: object
+              description: The created quarantine hold, as returned by the quarantine_high_risk service.
+      404:
+        description: No draft with that id exists.
+      501:
+        description: The draft's content_type is "video" — video scanning is not yet supported.
+      502:
+        description: A downstream call failed — fetching detections/draft, recording a detection, creating the quarantine hold, or applying remediation. See the response body's error/detail for which.
+    """
     auth_headers = forwarded_auth_headers(request)
     # The check-then-scan below has to happen under a per-draft lock: two
     # concurrent calls (e.g. a client retry firing while the first, slow
@@ -167,4 +300,13 @@ def process_draft(draft_id):
 # it will stop responding to /health.
 @bp.get("/health")
 def health():
+    """Liveness check.
+    Unauthenticated — polled frequently by the container orchestrator, so it must respond even while dependent services are unreachable.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: The service process is alive.
+    """
     return jsonify({"status": "ok"}), 200

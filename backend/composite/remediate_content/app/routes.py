@@ -125,6 +125,82 @@ def _regenerate_output(draft_id):
 
 @remediate_bp.route("/drafts/<draft_id>/remediate", methods=["POST"])
 def remediate_content(draft_id):
+    """Propose remediation for a draft's detections.
+    Fetches every unresolved detection for the draft and, for each image/metadata detection, creates (or reuses, if already proposed) a pending edit; for each text-source detection, builds a suggested redacted caption. Idempotent — calling this again for the same draft reuses existing pending edits instead of duplicating them. Nothing is written to the output file yet; call .../remediate/confirm to bake the edits in.
+    ---
+    tags:
+      - Remediation
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: draft_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: Proposed edits and/or a suggested caption redaction, ready for review.
+        schema:
+          id: RemediationProposal
+          type: object
+          properties:
+            draft_id:
+              type: string
+            original:
+              type: string
+              description: Path to the original file, or null if there were no image detections to remediate.
+            proposed_edits:
+              type: array
+              items:
+                id: RemediationEdit
+                type: object
+                properties:
+                  edit_id:
+                    type: string
+                  draft_id:
+                    type: string
+                  owner_id:
+                    type: string
+                  detection_id:
+                    type: string
+                  edit_type:
+                    type: string
+                    enum: [blur, metadata_strip]
+                  region_affected:
+                    type: object
+                    description: "{x, y, w, h} for blur edits; null for metadata strips."
+                  status:
+                    type: string
+                    enum: [pending, applied, reverted]
+                  created_at:
+                    type: string
+                    format: date-time
+            text_redaction:
+              type: object
+              description: Present only when the draft has text-source detections; otherwise null.
+              properties:
+                original_caption:
+                  type: string
+                suggested_caption:
+                  type: string
+                findings:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      detection_id:
+                        type: string
+                      category:
+                        type: string
+                      detail:
+                        type: string
+      400:
+        description: The draft has no unresolved detections, has image detections but no stored file, or none of its detections could be turned into a proposed edit or caption suggestion.
+      404:
+        description: No draft with that id exists.
+      502:
+        description: Failed to fetch detections, fetch the draft, fetch existing edits, or create a new edit.
+    """
     # No score filter here: when scan_draft calls this directly, every
     # detection present is already <=3 by construction (it only reaches here
     # when nothing scored >=4). When quarantine_high_risk's "edit" action
@@ -255,6 +331,41 @@ def remediate_content(draft_id):
 
 @remediate_bp.route("/drafts/<draft_id>/remediate/confirm", methods=["POST"])
 def confirm_remediation(draft_id):
+    """Apply the draft's proposed edits and regenerate the remediated file.
+    Applies every pending edit (status -> applied), marks every skipped (reverted) edit's detection as resolved too, then regenerates the downloadable output from the original using all currently-applied edits.
+    ---
+    tags:
+      - Remediation
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: draft_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: Edits confirmed and the output file regenerated.
+        schema:
+          id: RemediationConfirmation
+          type: object
+          properties:
+            draft_id:
+              type: string
+            confirmed:
+              type: array
+              items:
+                $ref: "#/definitions/RemediationEdit"
+            download_url:
+              type: string
+              example: /drafts/abc123/download
+      400:
+        description: There were no pending or skipped edits to confirm, or the draft has no stored file.
+      404:
+        description: No draft with that id exists, or the original file could not be found.
+      502:
+        description: Failed to fetch or update edits, or failed to fetch the draft.
+    """
     auth_headers = forwarded_auth_headers(request)
     resp = requests.get(f"{EDITS_SERVICE_URL}/drafts/{draft_id}/edits", headers=auth_headers)
     if resp.status_code != 200:
@@ -302,11 +413,32 @@ def confirm_remediation(draft_id):
 
 @remediate_bp.route("/drafts/<draft_id>/remediate/cancel", methods=["POST"])
 def cancel_remediation(draft_id):
-    """The user decided not to post this after all — confirm's counterpart
-    for a pending (non-quarantined) draft. Nothing was ever baked into an
-    output file (confirm never ran), so there's no file to clean up, just
-    the detections' resolution label: marking every still-unresolved one
-    "rejected" is what moves the post out of "pending" in History."""
+    """Cancel a pending remediation.
+    The user decided not to post this after all — confirm's counterpart for a pending (non-quarantined) draft. Nothing was ever baked into an output file (confirm never ran), so there's no file to clean up, just the detections' resolution label: marking every still-unresolved one "rejected" is what moves the post out of "pending" in History.
+    ---
+    tags:
+      - Remediation
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: draft_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: Every unresolved detection for the draft marked rejected.
+        schema:
+          type: object
+          properties:
+            draft_id:
+              type: string
+            status:
+              type: string
+              example: rejected
+      502:
+        description: Failed to fetch detections for the draft.
+    """
     auth_headers = forwarded_auth_headers(request)
     resp = requests.get(f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections", headers=auth_headers)
     if resp.status_code != 200:
@@ -319,6 +451,32 @@ def cancel_remediation(draft_id):
 
 @remediate_bp.route("/drafts/<draft_id>/download", methods=["GET"])
 def download_remediated(draft_id):
+    """Download the remediated (clean) file for a draft.
+    Only serves the file once at least one edit has been confirmed (status applied) — nothing has been baked in before that.
+    ---
+    tags:
+      - Remediation
+    security:
+      - BearerAuth: []
+    produces:
+      - application/octet-stream
+    parameters:
+      - in: path
+        name: draft_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: The remediated file, served as an attachment.
+        schema:
+          type: file
+      400:
+        description: No edits for this draft have been confirmed yet, or the draft has no stored file.
+      404:
+        description: No draft with that id exists, the original file could not be found, or the remediated file has not been generated yet.
+      502:
+        description: Failed to fetch edits for the draft, or failed to fetch the draft.
+    """
     # only serve the clean file if the user confirmed (>=1 applied edit)
     resp = requests.get(f"{EDITS_SERVICE_URL}/drafts/{draft_id}/edits", headers=forwarded_auth_headers(request))
     if resp.status_code != 200:
@@ -340,11 +498,26 @@ def download_remediated(draft_id):
 
 @remediate_bp.route("/drafts/<draft_id>/remediated", methods=["DELETE"])
 def delete_remediated(draft_id):
-    """Removes the baked-out clean file for a draft being erased from history
-    (manage_history's selective delete / retention sweep). Ownership is
-    enforced by _get_draft's call to content_drafts, same as every other
-    route here. Missing/never-remediated is treated as success — the end
-    state (no file) is what the caller wants either way."""
+    """Delete the remediated (clean) output file for a draft.
+    Removes the baked-out clean file for a draft being erased from history (manage_history's selective delete / retention sweep). Ownership is enforced by fetching the draft from content_drafts, same as every other route here. Missing/never-remediated is treated as success — the end state (no file) is what the caller wants either way.
+    ---
+    tags:
+      - Remediation
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: draft_id
+        type: string
+        required: true
+    responses:
+      204:
+        description: Remediated file deleted (no-op if one was never generated).
+      404:
+        description: No draft with that id exists.
+      502:
+        description: Failed to fetch the draft.
+    """
     draft, error = _get_draft(draft_id)
     if error:
         return error
@@ -357,6 +530,30 @@ def delete_remediated(draft_id):
 
 @remediate_bp.route("/edits/<edit_id>/revert", methods=["POST"])
 def revert_edit(edit_id):
+    """Revert (skip) an edit.
+    Marks the edit reverted and clears its detection's resolution back to unresolved (skipping a fix isn't the same as dismissing the underlying risk). If the edit had already been applied, regenerates the output file from the original using the remaining applied edits.
+    ---
+    tags:
+      - Remediation
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: edit_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: The reverted edit.
+        schema:
+          $ref: "#/definitions/RemediationEdit"
+      400:
+        description: The edit had been applied and its draft has no stored file.
+      404:
+        description: No edit with that id exists, or (if the edit had been applied) the original file could not be found.
+      502:
+        description: Failed to fetch or update the edit, or failed to fetch edits/the draft while regenerating the output.
+    """
     auth_headers = forwarded_auth_headers(request)
     resp = requests.get(f"{EDITS_SERVICE_URL}/edits/{edit_id}", headers=auth_headers)
     if resp.status_code == 404:
@@ -387,10 +584,30 @@ def revert_edit(edit_id):
 
 @remediate_bp.route("/edits/<edit_id>/restore", methods=["POST"])
 def restore_edit(edit_id):
-    """Un-skip a previously reverted edit, putting it back in the pending pool.
-    It re-enters the output file on the next /remediate/confirm call, mirroring
-    how a freshly-proposed edit is applied — restore does not immediately
-    re-bake it in."""
+    """Restore a previously reverted edit.
+    Un-skip a previously reverted edit, putting it back in the pending pool. It re-enters the output file on the next /remediate/confirm call, mirroring how a freshly-proposed edit is applied — restore does not immediately re-bake it in.
+    ---
+    tags:
+      - Remediation
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: edit_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: The restored (pending) edit.
+        schema:
+          $ref: "#/definitions/RemediationEdit"
+      400:
+        description: The edit's status was not reverted.
+      404:
+        description: No edit with that id exists.
+      502:
+        description: Failed to fetch or update the edit.
+    """
     auth_headers = forwarded_auth_headers(request)
     resp = requests.get(f"{EDITS_SERVICE_URL}/edits/{edit_id}", headers=auth_headers)
     if resp.status_code == 404:
@@ -412,4 +629,13 @@ def restore_edit(edit_id):
 # it will stop responding to /health.
 @remediate_bp.get("/health")
 def health():
+    """Liveness check.
+    Unauthenticated — polled frequently by the container orchestrator, so it must respond even while downstream services are unreachable.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: The service process is alive.
+    """
     return jsonify({"status": "ok"}), 200

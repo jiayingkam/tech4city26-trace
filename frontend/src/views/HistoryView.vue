@@ -109,6 +109,7 @@ const activeTab = ref('all')
 const posts = ref([])
 const thumbnails = ref({}) // draft_id -> blob url
 const loading = ref(false)
+const retryStatus = ref('')
 const error = ref('')
 const deleting = ref(false)
 const retentionMode = ref(null)
@@ -173,11 +174,17 @@ function revokeThumbnails() {
 
 async function load() {
   loading.value = true
+  retryStatus.value = ''
   error.value = ''
   cancelSelection()
   revokeThumbnails()
   try {
-    posts.value = await getHistory(activeTab.value)
+    // A backend service that's still waking its database from idle can take
+    // a while to respond — surface that as a retry count instead of leaving
+    // "Loading…" up with nothing to suggest it isn't just stuck.
+    posts.value = await getHistory(activeTab.value, (attempt, total) => {
+      retryStatus.value = `Still waking up the server, this can take a minute… (${attempt}/${total})`
+    })
     const entries = await Promise.all(
       posts.value
         .filter((p) => p.has_image)
@@ -188,6 +195,7 @@ async function load() {
     error.value = err.message || 'Could not load your history.'
   } finally {
     loading.value = false
+    retryStatus.value = ''
   }
 }
 
@@ -318,8 +326,11 @@ function cooldownRemaining(post) {
         </div>
       </div>
 
-      <div v-if="loading" class="empty-state">Loading…</div>
-      <p v-else-if="error" class="text-danger small">{{ error }}</p>
+      <div v-if="loading" class="empty-state">{{ retryStatus || 'Loading…' }}</div>
+      <p v-else-if="error" class="text-danger small d-flex align-items-center gap-2">
+        {{ error }}
+        <button class="btn btn-link btn-sm p-0 text-danger" title="Retry" @click="load">🔄</button>
+      </p>
       <div v-else-if="posts.length === 0" class="empty-state trace-card">Nothing here yet.</div>
 
       <div

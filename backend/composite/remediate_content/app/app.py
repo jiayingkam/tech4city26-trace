@@ -21,6 +21,11 @@ def create_app() -> Flask:
         swag = swagger(app)
         swag["info"]["version"] = "1.0"
         swag["info"]["title"] = "Remediate Content"
+        # Lets Swagger UI's "Authorize" button attach the bearer token that
+        # routes declare via `security: - BearerAuth: []` in their docstrings.
+        swag["securityDefinitions"] = {
+            "BearerAuth": {"type": "apiKey", "name": "Authorization", "in": "header"}
+        }
         return jsonify(swag)
 
     swaggerui_bp = get_swaggerui_blueprint(

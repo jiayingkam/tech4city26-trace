@@ -26,10 +26,63 @@ def _safe_detail(resp):
 
 @bp.route("/drafts", methods=["POST"])
 def upload_draft():
-    """Creates a content_drafts record and, if a file was sent, writes it to
-    the GCS bucket and attaches its storage_path to the draft. One call for
-    the frontend to make on 'Share' — mirrors scan_draft/process, which also
-    folds several atomic calls into a single composite endpoint."""
+    """Create a content draft and upload its file.
+    Creates a content_drafts record and, if a file was sent, writes it to the GCS bucket and attaches its storage_path to the draft. One call for the frontend to make on 'Share' — mirrors scan_draft/process, which also folds several atomic calls into a single composite endpoint.
+    ---
+    tags:
+      - Upload Post
+    security:
+      - BearerAuth: []
+    consumes:
+      - multipart/form-data
+    parameters:
+      - in: formData
+        name: content_type
+        type: string
+        required: true
+        enum: [text, image, video]
+      - in: formData
+        name: source_app
+        type: string
+        required: false
+        example: instagram
+      - in: formData
+        name: text_content
+        type: string
+        required: false
+        description: Caption/body text.
+      - in: formData
+        name: file
+        type: file
+        required: false
+        description: Required when content_type is image or video.
+    responses:
+      201:
+        description: Draft created (and file stored, if one was sent).
+        schema:
+          id: ContentDraft
+          type: object
+          properties:
+            draft_id:
+              type: string
+            owner_id:
+              type: string
+            content_type:
+              type: string
+            source_app:
+              type: string
+            storage_path:
+              type: string
+            text_content:
+              type: string
+            captured_at:
+              type: string
+              format: date-time
+      400:
+        description: content_type is missing/invalid, or content_type is image/video but no file was sent.
+      502:
+        description: The content_drafts service failed to create/update the draft, or the file failed to upload to storage.
+    """
     # owner_id comes from the caller's own token, not the form body — a
     # client can no longer create a draft on someone else's behalf just by
     # naming a different owner_id.
@@ -81,10 +134,43 @@ def upload_draft():
 
 @bp.route("/drafts/<draft_id>/caption", methods=["PATCH"])
 def insert_caption(draft_id):
-    """Sets (or clears) the caption on an already-created draft. An empty
-    string is a valid caption — most posts have no caption at all, and the
-    frontend may finish typing one after the photo has already started
-    uploading/scanning."""
+    """Set (or clear) a draft's caption.
+    An empty string is a valid caption — most posts have no caption at all, and the frontend may finish typing one after the photo has already started uploading/scanning.
+    ---
+    tags:
+      - Upload Post
+    security:
+      - BearerAuth: []
+    consumes:
+      - application/json
+    parameters:
+      - in: path
+        name: draft_id
+        type: string
+        required: true
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - text_content
+          properties:
+            text_content:
+              type: string
+              description: Use an empty string to clear the caption.
+    responses:
+      200:
+        description: The updated draft.
+        schema:
+          $ref: "#/definitions/ContentDraft"
+      400:
+        description: text_content is missing or not a string.
+      404:
+        description: No draft with that id exists.
+      502:
+        description: The content_drafts service failed to update the draft.
+    """
     data = request.get_json(silent=True)
     if not isinstance(data, dict) or "text_content" not in data:
         return jsonify({"error": "text_content is required (use an empty string for no caption)"}), 400
@@ -106,12 +192,32 @@ def insert_caption(draft_id):
 
 @bp.route("/drafts/<draft_id>/original", methods=["GET"])
 def get_original(draft_id):
-    """Serves the original file's bytes over HTTP. This service is the only
-    one that ever writes the file, to a GCS bucket rather than local disk —
-    scan_draft and remediate_content run as separate Cloud Run services, each
-    of which may be backed by multiple, independently-recycled container
-    instances with their own local filesystem, so local disk can't be relied
-    on to still have the file by the time a later request asks for it."""
+    """Serve a draft's original file.
+    Serves the original file's bytes over HTTP. This service is the only one that ever writes the file, to a GCS bucket rather than local disk — scan_draft and remediate_content run as separate Cloud Run services, each of which may be backed by multiple, independently-recycled container instances with their own local filesystem, so local disk can't be relied on to still have the file by the time a later request asks for it.
+    ---
+    tags:
+      - Upload Post
+    security:
+      - BearerAuth: []
+    produces:
+      - image/*
+    parameters:
+      - in: path
+        name: draft_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: The raw file bytes.
+        schema:
+          type: file
+      400:
+        description: The draft has no stored file.
+      404:
+        description: No draft with that id exists, or the stored file is missing from the bucket.
+      502:
+        description: The content_drafts service failed to return the draft.
+    """
     draft_resp = requests.get(
         f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}",
         headers=forwarded_auth_headers(request),
@@ -132,12 +238,26 @@ def get_original(draft_id):
 
 @bp.route("/drafts/<draft_id>/original", methods=["DELETE"])
 def delete_original(draft_id):
-    """Removes the stored original file for a draft that's being erased from
-    history (manage_history's selective delete / retention sweep). Only this
-    service ever writes that file, so only it can remove it — same reasoning
-    as get_original above. Ownership is enforced by content_drafts' own GET,
-    same as get_original; missing/already-gone is treated as success since
-    the end state (no file) is what the caller wants either way."""
+    """Delete a draft's original file.
+    Removes the stored original file for a draft that's being erased from history (manage_history's selective delete / retention sweep). Only this service ever writes that file, so only it can remove it — same reasoning as get_original above. Ownership is enforced by content_drafts' own GET, same as get_original; missing/already-gone is treated as success since the end state (no file) is what the caller wants either way.
+    ---
+    tags:
+      - Upload Post
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: draft_id
+        type: string
+        required: true
+    responses:
+      204:
+        description: File deleted (or there was none to delete).
+      404:
+        description: No draft with that id exists.
+      502:
+        description: The content_drafts service failed to return the draft.
+    """
     draft_resp = requests.get(
         f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}",
         headers=forwarded_auth_headers(request),
@@ -159,4 +279,13 @@ def delete_original(draft_id):
 # it will stop responding to /health.
 @bp.get("/health")
 def health():
+    """Liveness check.
+    Unauthenticated — polled frequently by the container orchestrator, so it must respond even while dependencies are unreachable.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: The service process is alive.
+    """
     return jsonify({"status": "ok"}), 200

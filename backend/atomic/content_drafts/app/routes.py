@@ -24,6 +24,67 @@ def _missing_required(data, fields):
 
 @bp.route("/drafts", methods=["POST"])
 def create_draft():
+    """Create a content draft.
+    Stores a new draft (text/image/video) for later scanning and remediation. owner_id must match the authenticated caller.
+    ---
+    tags:
+      - Content Drafts
+    security:
+      - BearerAuth: []
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - owner_id
+            - content_type
+          properties:
+            owner_id:
+              type: string
+              description: Must match the authenticated user's id.
+            content_type:
+              type: string
+              enum: [text, image, video]
+            source_app:
+              type: string
+              example: instagram
+            storage_path:
+              type: string
+              description: Path/key to the raw file in storage. Omit for text-only drafts.
+            text_content:
+              type: string
+              description: Caption/body text. Omit for image/video drafts.
+    responses:
+      201:
+        description: Draft created.
+        schema:
+          id: ContentDraft
+          type: object
+          properties:
+            draft_id:
+              type: string
+            owner_id:
+              type: string
+            content_type:
+              type: string
+            source_app:
+              type: string
+            storage_path:
+              type: string
+            text_content:
+              type: string
+            captured_at:
+              type: string
+              format: date-time
+      400:
+        description: Request body is not a JSON object, a required field is missing, or content_type is invalid.
+      403:
+        description: owner_id does not match the authenticated user.
+    """
     data, error = _json_body()
     if error:
         return error
@@ -48,6 +109,27 @@ def create_draft():
 
 @bp.route("/drafts/<draft_id>", methods=["GET"])
 def get_draft(draft_id):
+    """Get a content draft by id.
+    ---
+    tags:
+      - Content Drafts
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: draft_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: The draft.
+        schema:
+          $ref: "#/definitions/ContentDraft"
+      403:
+        description: The draft belongs to a different user.
+      404:
+        description: No draft with that id exists.
+    """
     draft = db.session.get(ContentDrafts, draft_id)
     if draft is None:
         return jsonify({"error": "draft not found"}), 404
@@ -58,6 +140,27 @@ def get_draft(draft_id):
 
 @bp.route("/users/<owner_id>/drafts", methods=["GET"])
 def list_drafts_for_owner(owner_id):
+    """List all drafts owned by a user.
+    ---
+    tags:
+      - Content Drafts
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: owner_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: The user's drafts, most recently created first is not guaranteed — callers should sort if order matters.
+        schema:
+          type: array
+          items:
+            $ref: "#/definitions/ContentDraft"
+      403:
+        description: owner_id does not match the authenticated user.
+    """
     if owner_id != get_jwt_identity():
         return jsonify({"error": "forbidden"}), 403
     stmt = db.select(ContentDrafts).filter_by(owner_id=owner_id)
@@ -67,6 +170,42 @@ def list_drafts_for_owner(owner_id):
 
 @bp.route("/drafts/<draft_id>", methods=["PATCH"])
 def update_draft(draft_id):
+    """Update a draft's storage path and/or text content.
+    Only storage_path and text_content are mutable — everything else about a draft is fixed at creation.
+    ---
+    tags:
+      - Content Drafts
+    security:
+      - BearerAuth: []
+    consumes:
+      - application/json
+    parameters:
+      - in: path
+        name: draft_id
+        type: string
+        required: true
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            storage_path:
+              type: string
+            text_content:
+              type: string
+    responses:
+      200:
+        description: The updated draft.
+        schema:
+          $ref: "#/definitions/ContentDraft"
+      400:
+        description: Request body is not a JSON object.
+      403:
+        description: The draft belongs to a different user.
+      404:
+        description: No draft with that id exists.
+    """
     draft = db.session.get(ContentDrafts, draft_id)
     if draft is None:
         return jsonify({"error": "draft not found"}), 404
@@ -85,6 +224,25 @@ def update_draft(draft_id):
 
 @bp.route("/drafts/<draft_id>", methods=["DELETE"])
 def delete_draft(draft_id):
+    """Delete a draft.
+    ---
+    tags:
+      - Content Drafts
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: draft_id
+        type: string
+        required: true
+    responses:
+      204:
+        description: Draft deleted.
+      403:
+        description: The draft belongs to a different user.
+      404:
+        description: No draft with that id exists.
+    """
     draft = db.session.get(ContentDrafts, draft_id)
     if draft is None:
         return jsonify({"error": "draft not found"}), 404
@@ -100,4 +258,13 @@ def delete_draft(draft_id):
 # it will stop responding to /health.
 @bp.get("/health")
 def health():
+    """Liveness check.
+    Unauthenticated — polled frequently by the container orchestrator, so it must respond even while the database is unreachable.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: The service process is alive.
+    """
     return jsonify({"status": "ok"}), 200

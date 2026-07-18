@@ -25,6 +25,60 @@ def _missing_required(data, fields):
 
 @quarantine_bp.route("/quarantine", methods=["POST"])
 def create_quarantine():
+    """Create a quarantine item.
+    Places a draft on hold for the given reason. owner_id is taken from the authenticated caller, not the request body. cooldown_expiry is computed from cooldown_minutes (default 15) at creation time.
+    ---
+    tags:
+      - Quarantine Items
+    security:
+      - BearerAuth: []
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - draft_id
+            - reason
+          properties:
+            draft_id:
+              type: string
+            reason:
+              type: string
+              example: Visible house number + GPS location
+            cooldown_minutes:
+              type: integer
+              description: Minutes until cooldown_expiry. Must be a positive integer. Defaults to 15.
+    responses:
+      201:
+        description: Quarantine item created.
+        schema:
+          id: QuarantineItem
+          type: object
+          properties:
+            quarantine_id:
+              type: string
+            draft_id:
+              type: string
+            owner_id:
+              type: string
+            reason:
+              type: string
+            cooldown_expiry:
+              type: string
+              format: date-time
+            state:
+              type: string
+              enum: [held, accepted, edited, deleted]
+            created_at:
+              type: string
+              format: date-time
+      400:
+        description: Request body is not a JSON object, a required field is missing, or cooldown_minutes is not a positive integer.
+    """
     data, error = _json_body()
     if error:
         return error
@@ -47,6 +101,26 @@ def create_quarantine():
 
 @quarantine_bp.route("/drafts/<draft_id>/quarantine", methods=["GET"])
 def list_quarantine(draft_id):
+    """List quarantine items for a draft.
+    Scoped to items owned by the authenticated caller.
+    ---
+    tags:
+      - Quarantine Items
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: draft_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: The draft's quarantine items owned by the authenticated caller.
+        schema:
+          type: array
+          items:
+            $ref: "#/definitions/QuarantineItem"
+    """
     # No extra sqlalchemy import needed if you use db.select!
     stmt = db.select(QuarantineItem).filter_by(draft_id=draft_id, owner_id=get_jwt_identity())
     items = db.session.scalars(stmt).all()
@@ -55,6 +129,27 @@ def list_quarantine(draft_id):
 
 @quarantine_bp.route("/quarantine/<quarantine_id>", methods=["GET"])
 def get_quarantine(quarantine_id):
+    """Get a quarantine item by id.
+    ---
+    tags:
+      - Quarantine Items
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: quarantine_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: The quarantine item.
+        schema:
+          $ref: "#/definitions/QuarantineItem"
+      403:
+        description: The quarantine item belongs to a different user.
+      404:
+        description: No quarantine item with that id exists.
+    """
     item = db.session.get(QuarantineItem, quarantine_id)
     if item is None:
         return jsonify({"error": "quarantine item not found"}), 404
@@ -65,6 +160,37 @@ def get_quarantine(quarantine_id):
 
 @quarantine_bp.route("/quarantine/<quarantine_id>/cooldown", methods=["GET"])
 def cooldown_status(quarantine_id):
+    """Get the cooldown status of a quarantine item.
+    Reports whether the cooldown_expiry timestamp has passed and how many seconds remain.
+    ---
+    tags:
+      - Quarantine Items
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: quarantine_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: The item's cooldown status.
+        schema:
+          id: CooldownStatus
+          type: object
+          properties:
+            quarantine_id:
+              type: string
+            expired:
+              type: boolean
+            seconds_remaining:
+              type: integer
+              description: Seconds until cooldown_expiry, floored at 0.
+      403:
+        description: The quarantine item belongs to a different user.
+      404:
+        description: No quarantine item with that id exists.
+    """
     item = db.session.get(QuarantineItem, quarantine_id)
     if item is None:
         return jsonify({"error": "quarantine item not found"}), 404
@@ -81,6 +207,43 @@ def cooldown_status(quarantine_id):
 
 @quarantine_bp.route("/quarantine/<quarantine_id>", methods=["PATCH"])
 def update_quarantine(quarantine_id):
+    """Update a quarantine item's state.
+    Only state is mutable — everything else about a quarantine item is fixed at creation.
+    ---
+    tags:
+      - Quarantine Items
+    security:
+      - BearerAuth: []
+    consumes:
+      - application/json
+    parameters:
+      - in: path
+        name: quarantine_id
+        type: string
+        required: true
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - state
+          properties:
+            state:
+              type: string
+              enum: [held, accepted, edited, deleted]
+    responses:
+      200:
+        description: The updated quarantine item.
+        schema:
+          $ref: "#/definitions/QuarantineItem"
+      400:
+        description: Request body is not a JSON object, or state is missing/invalid.
+      403:
+        description: The quarantine item belongs to a different user.
+      404:
+        description: No quarantine item with that id exists.
+    """
     item = db.session.get(QuarantineItem, quarantine_id)
     if item is None:
         return jsonify({"error": "quarantine item not found"}), 404
@@ -99,6 +262,25 @@ def update_quarantine(quarantine_id):
 
 @quarantine_bp.route("/quarantine/<quarantine_id>", methods=["DELETE"])
 def delete_quarantine(quarantine_id):
+    """Delete a quarantine item.
+    ---
+    tags:
+      - Quarantine Items
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: quarantine_id
+        type: string
+        required: true
+    responses:
+      204:
+        description: Quarantine item deleted.
+      403:
+        description: The quarantine item belongs to a different user.
+      404:
+        description: No quarantine item with that id exists.
+    """
     item = db.session.get(QuarantineItem, quarantine_id)
     if item is None:
         return jsonify({"error": "quarantine item not found"}), 404
@@ -113,6 +295,22 @@ def delete_quarantine(quarantine_id):
 # selective delete and retention sweep).
 @quarantine_bp.route("/drafts/<draft_id>/quarantine", methods=["DELETE"])
 def delete_quarantine_for_draft(draft_id):
+    """Delete all quarantine items for a draft.
+    Scoped to items owned by the authenticated caller. Used to cascade a draft's deletion.
+    ---
+    tags:
+      - Quarantine Items
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: draft_id
+        type: string
+        required: true
+    responses:
+      204:
+        description: Matching quarantine items deleted (zero or more).
+    """
     stmt = db.select(QuarantineItem).filter_by(draft_id=draft_id, owner_id=get_jwt_identity())
     items = db.session.scalars(stmt).all()
     for item in items:
@@ -126,4 +324,13 @@ def delete_quarantine_for_draft(draft_id):
 # it will stop responding to /health.
 @quarantine_bp.get("/health")
 def health():
+    """Liveness check.
+    Unauthenticated — polled frequently by the container orchestrator, so it must respond even while the database is unreachable.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: The service process is alive.
+    """
     return jsonify({"status": "ok"}), 200
