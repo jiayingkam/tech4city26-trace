@@ -374,7 +374,7 @@ def confirm_remediation(draft_id):
     # only apply edits the user hasn't skipped
     pending = [e for e in all_edits if e["status"] == "pending"]
     # skipped edits still standing at confirm time: the user reviewed the
-    # suggestion and chose to leave it as-is, which is a decision, not an
+    # suggestion and chose not to apply it, which is a decision, not an
     # unresolved flag — resolve their detections too, so confirming doesn't
     # leave the post stuck at "pending" in History forever.
     skipped = [e for e in all_edits if e["status"] == "reverted"]
@@ -395,7 +395,7 @@ def confirm_remediation(draft_id):
         _set_detection_resolution(confirmed_edit.get("detection_id"), "accepted", auth_headers)
 
     for e in skipped:
-        _set_detection_resolution(e.get("detection_id"), "accepted", auth_headers)
+        _set_detection_resolution(e.get("detection_id"), "rejected", auth_headers)
 
     # rebuild from the original using every currently-applied edit, not just
     # the ones confirmed this call, so repeated confirm/revert/restore cycles
