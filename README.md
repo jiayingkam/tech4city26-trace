@@ -69,6 +69,43 @@ To stop all services:
 docker compose down
 ```
 
+### Recreating the database (`init-db`)
+
+Each atomic service (`users`, `content_drafts`, `detections`, `edits`, `exposure_profiles`, `quarantine_items`) defines its SQLAlchemy models and exposes a Flask CLI command that creates their tables:
+
+```python
+# atomic/<service>/app/app.py
+@app.cli.command("init-db")
+def init_db():
+    wait_for_db(db.engine)
+    db.create_all()
+```
+
+This does **not** run automatically on startup — it used to run on every cold start, but that meant paying for a DB wake-up and a full schema check on every boot, so it was pulled out into a one-off manual command.
+
+**Run it whenever:**
+
+- You're setting up the Azure SQL database for the first time.
+- You've added a new model, or a new table, to any atomic service.
+
+**It will NOT:**
+
+- Alter existing tables (add/remove/rename columns, change types, etc.) — `db.create_all()` only creates tables that don't exist yet. If you change an existing model's columns, you need to alter the table yourself (e.g. via a manual `ALTER TABLE`, or by dropping and recreating the table if the data is disposable).
+
+**How to run it**, per service, with the containers already up:
+
+```bash
+cd backend
+docker compose exec users flask --app app.app:create_app init-db
+docker compose exec content_drafts flask --app app.app:create_app init-db
+docker compose exec detections flask --app app.app:create_app init-db
+docker compose exec edits flask --app app.app:create_app init-db
+docker compose exec exposure_profiles flask --app app.app:create_app init-db
+docker compose exec quarantine_items flask --app app.app:create_app init-db
+```
+
+Only re-run it for the service(s) whose models changed — it's harmless to run against a service with no new tables, it just no-ops.
+
 ## Running the Frontend Locally
 
 ```bash
