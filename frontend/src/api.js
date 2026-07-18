@@ -4,6 +4,7 @@ const DETECTIONS_URL = import.meta.env.VITE_DETECTIONS_URL || 'http://localhost:
 const EDITS_URL = import.meta.env.VITE_EDITS_URL || 'http://localhost:5004'
 const REMEDIATE_CONTENT_URL = import.meta.env.VITE_REMEDIATE_CONTENT_URL || 'http://localhost:5011'
 const QUARANTINE_HIGH_RISK_URL = import.meta.env.VITE_QUARANTINE_HIGH_RISK_URL || 'http://localhost:5010'
+const GENERATE_TEACHABLE_MOMENT_URL = import.meta.env.VITE_GENERATE_TEACHABLE_MOMENT_URL || 'http://localhost:5009'
 const USERS_URL = import.meta.env.VITE_USERS_URL || 'http://localhost:5001'
 const MANAGE_HISTORY_URL = import.meta.env.VITE_MANAGE_HISTORY_URL || 'http://localhost:5015'
 
@@ -122,6 +123,13 @@ export async function processDraft(draftId, onRetry) {
 
 export async function getDetections(draftId, onRetry) {
   const res = await fetchWithRetry(`${DETECTIONS_URL}/drafts/${draftId}/detections`, undefined, { onRetry })
+  return parseOrThrow(res)
+}
+
+export async function getTeachableMoment(draftId, onRetry) {
+  const res = await fetchWithRetry(`${GENERATE_TEACHABLE_MOMENT_URL}/drafts/${draftId}/teachable-moment`, {
+    method: 'POST',
+  }, { onRetry })
   return parseOrThrow(res)
 }
 
@@ -296,4 +304,3 @@ export async function getDraftThumbnail(draftId) {
   if (!res.ok) return null
   return URL.createObjectURL(await res.blob())
 }
-

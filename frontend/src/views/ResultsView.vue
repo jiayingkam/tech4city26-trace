@@ -4,6 +4,7 @@ import { ref, computed } from 'vue'
 const props = defineProps({
   photoUrl: { type: String, default: null },
   detections: { type: Array, default: () => [] },
+  teachableMoment: { type: Object, default: null },
 })
 
 defineEmits(['restart', 'continue'])
@@ -89,6 +90,13 @@ const hasFindings = computed(() => props.detections.length > 0)
             </li>
           </ul>
         </div>
+
+        <div v-if="teachableMoment" class="teachable-card mt-3">
+          <p class="eyebrow mb-1">Why this matters</p>
+          <p class="fw-semibold mb-1">{{ teachableMoment.title }}</p>
+          <p class="small mb-2">{{ teachableMoment.explanation }}</p>
+          <p class="small mb-0"><strong>Safer move:</strong> {{ teachableMoment.safer_action }}</p>
+        </div>
       </template>
     </div>
 
@@ -122,5 +130,18 @@ const hasFindings = computed(() => props.detections.length > 0)
   padding: 1px 6px;
   border-radius: 4px 4px 0 0;
   white-space: nowrap;
+}
+.teachable-card {
+  border: 1px solid #b9d8cf;
+  border-radius: 8px;
+  background: #eef8f5;
+  color: #173f35;
+  padding: 0.75rem;
+}
+.eyebrow {
+  color: #2a7766;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 </style>
