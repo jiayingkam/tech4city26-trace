@@ -9,7 +9,7 @@ import RemediationView from './views/RemediationView.vue'
 import QuarantineView from './views/QuarantineView.vue'
 import HistoryView from './views/HistoryView.vue'
 import SettingsView from './views/SettingsView.vue'
-import { uploadPost, processDraft, getDetections, getToken, getMe, logout as apiLogout } from './api'
+import { uploadPost, processDraft, getDetections, getTeachableMoment, getToken, getMe, logout as apiLogout } from './api'
 
 // 0 login, 1 compose, 2 scanning, 3 results, 4 action, 5 error — skip
 // straight past login if a token from earlier this tab session is still
@@ -19,6 +19,7 @@ const photoPreviewUrl = ref(null)
 const detections = ref([])
 const draftId = ref(null)
 const scanOutcome = ref(null)
+const teachableMoment = ref(null)
 // Set directly from scanOutcome.remediation, or replaced by quarantine's
 // "edit" handoff, which also produces a remediation payload to act on.
 const activeRemediation = ref(null)
@@ -75,6 +76,11 @@ async function handleShare(payload) {
 
     scanOutcome.value = await processDraft(draft.draft_id, onRetry)
     detections.value = await getDetections(draft.draft_id, onRetry)
+    try {
+      teachableMoment.value = await getTeachableMoment(draft.draft_id, onRetry)
+    } catch {
+      teachableMoment.value = null
+    }
     if (scanOutcome.value.outcome === 'remediated') {
       activeRemediation.value = scanOutcome.value.remediation
     }
@@ -106,6 +112,7 @@ function restart() {
   detections.value = []
   draftId.value = null
   scanOutcome.value = null
+  teachableMoment.value = null
   activeRemediation.value = null
   errorMessage.value = ''
 }
@@ -165,6 +172,7 @@ function restart() {
         v-else-if="step === 3"
         :photo-url="photoPreviewUrl"
         :detections="detections"
+        :teachable-moment="teachableMoment"
         @restart="restart"
         @continue="step = 4"
       />
