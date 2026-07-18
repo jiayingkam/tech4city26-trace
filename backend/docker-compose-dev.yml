@@ -1,0 +1,141 @@
+include:
+  - docker-compose.yml
+
+# ── Local dev stack ──────────────────────────────────────────────────────
+# `docker compose -f docker-compose-dev.yml up --build` brings up the whole
+# backend against a local SQL Server container instead of the real Azure DB
+# (see docker-compose.yml's `azure_db` service), so day-to-day local dev and
+# testing doesn't burn Azure compute. Not used for CI/production - that still
+# runs against the real Azure DB via docker-compose.yml directly.
+services:
+  # Nothing below depends on azure_db anymore (each atomic service's
+  # depends_on is fully replaced further down), so gating it behind a profile
+  # that's never activated here cleanly excludes it from `up` with no args.
+  # This override only applies within this file — docker-compose.yml on its
+  # own is untouched and still starts azure_db exactly as before.
+  azure_db:
+    profiles: ["cloud"]
+
+  local_db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64 # MS SQL Server has no arm64 image; same reason atomic services set this.
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=LocalDevPass!123
+    ports:
+      - "127.0.0.1:1433:1433"
+    volumes:
+      - local_db_data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 15s
+
+  # One-shot: creates the trace_dev database if it doesn't exist yet, then
+  # exits. SQL Server (unlike the Postgres/MySQL images) doesn't auto-create
+  # a database on first boot, so every atomic service gates on this instead
+  # of directly on local_db.
+  local_db_init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
+    depends_on:
+      local_db:
+        condition: service_healthy
+    entrypoint: ["/opt/mssql-tools18/bin/sqlcmd"]
+    command: ["-S", "local_db", "-U", "sa", "-P", "LocalDevPass!123", "-C", "-Q",
+               "IF DB_ID('trace_dev') IS NULL CREATE DATABASE trace_dev;"]
+
+  users:
+    depends_on: !override
+      local_db_init:
+        condition: service_completed_successfully
+    environment:
+      - DB_SERVER=local_db
+      - DB_NAME=trace_dev
+      - DB_USER=sa
+      - DB_PASSWORD=LocalDevPass!123
+      - DB_ENCRYPT=no
+      - DB_TRUST_SERVER_CERT=yes
+    command: >
+      sh -c "flask --app app.app:create_app init-db &&
+             gunicorn --bind 0.0.0.0:5001 --workers 1 --threads 8 --timeout 0 app.app:'create_app()'"
+
+  content_drafts:
+    depends_on: !override
+      local_db_init:
+        condition: service_completed_successfully
+    environment:
+      - DB_SERVER=local_db
+      - DB_NAME=trace_dev
+      - DB_USER=sa
+      - DB_PASSWORD=LocalDevPass!123
+      - DB_ENCRYPT=no
+      - DB_TRUST_SERVER_CERT=yes
+    command: >
+      sh -c "flask --app app.app:create_app init-db &&
+             gunicorn --bind 0.0.0.0:5002 --workers 1 --threads 8 --timeout 0 app.app:'create_app()'"
+
+  detections:
+    depends_on: !override
+      local_db_init:
+        condition: service_completed_successfully
+    environment:
+      - DB_SERVER=local_db
+      - DB_NAME=trace_dev
+      - DB_USER=sa
+      - DB_PASSWORD=LocalDevPass!123
+      - DB_ENCRYPT=no
+      - DB_TRUST_SERVER_CERT=yes
+    command: >
+      sh -c "flask --app app.app:create_app init-db &&
+             gunicorn --bind 0.0.0.0:5003 --workers 1 --threads 8 --timeout 0 app.app:'create_app()'"
+
+  edits:
+    depends_on: !override
+      local_db_init:
+        condition: service_completed_successfully
+    environment:
+      - DB_SERVER=local_db
+      - DB_NAME=trace_dev
+      - DB_USER=sa
+      - DB_PASSWORD=LocalDevPass!123
+      - DB_ENCRYPT=no
+      - DB_TRUST_SERVER_CERT=yes
+    command: >
+      sh -c "flask --app app.app:create_app init-db &&
+             gunicorn --bind 0.0.0.0:5004 --workers 1 --threads 8 --timeout 0 app.app:'create_app()'"
+
+  exposure_profiles:
+    depends_on: !override
+      local_db_init:
+        condition: service_completed_successfully
+    environment:
+      - DB_SERVER=local_db
+      - DB_NAME=trace_dev
+      - DB_USER=sa
+      - DB_PASSWORD=LocalDevPass!123
+      - DB_ENCRYPT=no
+      - DB_TRUST_SERVER_CERT=yes
+    command: >
+      sh -c "flask --app app.app:create_app init-db &&
+             gunicorn --bind 0.0.0.0:5005 --workers 1 --threads 8 --timeout 0 app.app:'create_app()'"
+
+  quarantine_items:
+    depends_on: !override
+      local_db_init:
+        condition: service_completed_successfully
+    environment:
+      - DB_SERVER=local_db
+      - DB_NAME=trace_dev
+      - DB_USER=sa
+      - DB_PASSWORD=LocalDevPass!123
+      - DB_ENCRYPT=no
+      - DB_TRUST_SERVER_CERT=yes
+    command: >
+      sh -c "flask --app app.app:create_app init-db &&
+             gunicorn --bind 0.0.0.0:5006 --workers 1 --threads 8 --timeout 0 app.app:'create_app()'"
+
+volumes:
+  local_db_data:

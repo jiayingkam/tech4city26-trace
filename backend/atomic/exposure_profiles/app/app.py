@@ -29,9 +29,11 @@ def create_app() -> Flask:
     db_user = environ["DB_USER"]
     db_password = environ["DB_PASSWORD"]
     driver = "ODBC+Driver+18+for+SQL+Server"
+    encrypt = environ.get("DB_ENCRYPT", "yes")
+    trust_server_cert = environ.get("DB_TRUST_SERVER_CERT", "no")
     app.config["SQLALCHEMY_DATABASE_URI"] = (
         f"mssql+pyodbc://{db_user}:{db_password}@{db_server}/{db_name}"
-        f"?driver={driver}&Encrypt=yes&TrustServerCertificate=no&Connection+Timeout=30"
+        f"?driver={driver}&Encrypt={encrypt}&TrustServerCertificate={trust_server_cert}&Connection+Timeout=30"
     )
     # Azure SQL silently drops idle connections; without pre_ping, the next
     # query on a stale pooled connection dies with a raw TCP/communication
