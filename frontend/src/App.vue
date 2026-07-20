@@ -35,8 +35,7 @@ const screen = ref('app')
 const settingsUser = ref(null)
 // This is the tips that would be shown when the screen is loading
 const quickTeachTip = ref('')
-const scanMascots = ['camera', 'shield', 'pencil', 'magnifier', 'phone']
-const scanMascot = ref(scanMascots[0])
+const scanMascot = ref(quickTeachTips[0]?.mascot || 'camera')
 
 async function openSettings() {
   errorMessage.value = ''
@@ -124,18 +123,35 @@ function restart() {
   errorMessage.value = ''
 }
 let quickTeachTimer = null
+let remainingQuickTeachTips = []
+let previousQuickTeachTip = null
 
-function pickScanMascot() {
-  scanMascot.value = scanMascots[Math.floor(Math.random() * scanMascots.length)]
+function refillQuickTeachTips() {
+  remainingQuickTeachTips = [...quickTeachTips]
 }
 
 function pickQuickTeachTip() {
-  const next = quickTeachTips[Math.floor(Math.random() * quickTeachTips.length)]
-  quickTeachTip.value = next
+  if (remainingQuickTeachTips.length === 0) refillQuickTeachTips()
+
+  const variedCandidates = remainingQuickTeachTips.filter((tip) => (
+    tip.text !== previousQuickTeachTip?.text
+    && tip.mascot !== previousQuickTeachTip?.mascot
+  ))
+  const candidates = variedCandidates.length > 0
+    ? variedCandidates
+    : remainingQuickTeachTips.filter((tip) => tip.text !== previousQuickTeachTip?.text)
+  const pool = candidates.length > 0 ? candidates : remainingQuickTeachTips
+  const next = pool[Math.floor(Math.random() * pool.length)]
+
+  remainingQuickTeachTips = remainingQuickTeachTips.filter((tip) => tip !== next)
+  previousQuickTeachTip = next
+  quickTeachTip.value = next.text
+  scanMascot.value = next.mascot
 }
 
 function startQuickTeach() {
-  pickScanMascot()
+  refillQuickTeachTips()
+  previousQuickTeachTip = null
   pickQuickTeachTip()
   clearInterval(quickTeachTimer)
   quickTeachTimer = setInterval(pickQuickTeachTip, 5000)
