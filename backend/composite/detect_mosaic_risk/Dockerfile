@@ -10,3 +10,4 @@ COPY shared/trace_cors trace_cors/
 COPY composite/detect_mosaic_risk/app/ app/
 
 CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5008} --workers 1 --threads 8 --timeout 0 app.app:'create_app()'"]
+

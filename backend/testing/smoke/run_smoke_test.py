@@ -15,7 +15,7 @@ It exercises two golden-path scenarios:
      round-trip — including that reverting an edit actually regenerates the
      downloaded file instead of just flipping a database flag).
 
-Run with the real stack up (see docker-compose-dev.yml for the exact
+Run with the real stack up (see docker-compose-test.yml for the exact
 commands). Needs a reachable Azure SQL DB and a working OPENAI_API_KEY —
 this makes real LLM calls, it is not free and not instant.
 """
