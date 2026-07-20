@@ -252,8 +252,16 @@ function cooldownRemaining(post) {
 </script>
 
 <template>
-  <!-- Reviewing a quarantined post takes over the whole screen, same as the
-       compose flow's own step 4 -->
+  <!-- These sub-screens take over the whole view, same as the compose
+       flow's own steps — so they need their own hamburger overlay too,
+       since they don't fall through to this file's own header below. -->
+  <HamburgerMenu
+    v-if="subScreen"
+    @history="$emit('history')"
+    @settings="$emit('settings')"
+    @logout="$emit('logout')"
+  />
+
   <QuarantineView
     v-if="subScreen === 'quarantine'"
     :quarantine="activePost"
