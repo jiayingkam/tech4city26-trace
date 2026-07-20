@@ -113,6 +113,12 @@ body {
   font-size: 0.82rem;
 }
 
+.bold-note{
+  
+  color: var(--trace-ink);
+  font-size: 0.90rem;
+}
+
 .status-chip {
   display: inline-flex;
   align-items: center;
