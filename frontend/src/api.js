@@ -1,3 +1,4 @@
+const DETECT_MOSAIC_RISK_URL = import.meta.env.VITE_DETECT_MOSAIC_RISK_URL || 'http://localhost:5008'
 const UPLOAD_POST_URL = import.meta.env.VITE_UPLOAD_POST_URL || 'http://localhost:5014'
 const SCAN_DRAFT_URL = import.meta.env.VITE_SCAN_DRAFT_URL || 'http://localhost:5012'
 const DETECTIONS_URL = import.meta.env.VITE_DETECTIONS_URL || 'http://localhost:5003'
@@ -232,6 +233,11 @@ export async function addManualEdit(draftId, region) {
 
 // Renames a self-marked area by updating the underlying Detection's detail
 // (the one-line description RemediationView shows next to its checkbox).
+export async function deleteEdit(editId) {
+  const res = await fetchWithRetry(`${EDITS_URL}/edits/${editId}`, { method: 'DELETE' })
+  return parseOrThrow(res)
+}
+
 export async function renameDetection(detectionId, detail) {
   const res = await fetchWithRetry(`${DETECTIONS_URL}/detections/${detectionId}`, {
     method: 'PATCH',
@@ -306,6 +312,15 @@ export async function deleteHistoryItems({ draftIds = [], detectionIds = [], qua
 // behind the same auth gate as everything else, so — same reasoning as
 // downloadRemediated — this can't just be a plain <img src>; it has to be a
 // real fetch with the token attached, turned into a local blob URL.
+export async function getMosaicTrajectory(ownerId, onRetry) {
+  const res = await fetchWithRetry(
+    `${DETECT_MOSAIC_RISK_URL}/users/${ownerId}/mosaic-trajectory`,
+    undefined,
+    { onRetry },
+  )
+  return parseOrThrow(res)
+}
+
 export async function getDraftThumbnail(draftId) {
   const res = await fetchWithRetry(`${UPLOAD_POST_URL}/drafts/${draftId}/original`)
   if (!res.ok) return null

@@ -19,6 +19,7 @@ function openAuth(nextMode) {
 
 function switchMode() {
   mode.value = mode.value === 'login' ? 'signup' : 'login'
+  password.value = ''
   error.value = ''
 }
 
@@ -79,6 +80,7 @@ async function submit() {
       </div>
 
       <form v-else class="auth-form" @submit.prevent="submit">
+        <button type="button" class="btn-back" @click="authOpen = false">← Back</button>
         <div class="form-heading">
           <p class="mb-1">{{ mode === 'login' ? 'Welcome back' : 'Start checking posts' }}</p>
           <span>{{ mode === 'login' ? 'Log in to continue.' : 'Create an account to try Trace.' }}</span>
@@ -116,7 +118,10 @@ async function submit() {
   justify-content: space-between;
   gap: 14px;
   padding: 24px 22px 20px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
   background:
     linear-gradient(160deg, rgba(21, 165, 139, 0.2), transparent 34%),
     linear-gradient(24deg, rgba(244, 183, 64, 0.16), transparent 45%),
@@ -314,6 +319,24 @@ async function submit() {
 }
 .auth-form .form-control {
   min-height: 42px;
+}
+.login-screen::-webkit-scrollbar {
+  width: 3px;
+}
+.login-screen::-webkit-scrollbar-track {
+  background: transparent;
+}
+.login-screen::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 99px;
+}
+.btn-back {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--trace-muted);
+  font-size: 0.82rem;
 }
 
 @media (max-height: 740px) {

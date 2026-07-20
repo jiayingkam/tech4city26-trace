@@ -9,6 +9,7 @@ import RemediationView from './views/RemediationView.vue'
 import QuarantineView from './views/QuarantineView.vue'
 import HistoryView from './views/HistoryView.vue'
 import SettingsView from './views/SettingsView.vue'
+import MosaicView from './views/MosaicView.vue'
 import { uploadPost, processDraft, getDetections, getTeachableMoment, getToken, getMe, logout as apiLogout } from './api'
 import { quickTeachTips } from './content/loadQuickTeach'
 
@@ -174,6 +175,7 @@ onUnmounted(stopQuickTeach)
         v-if="step !== 0 && screen === 'app'"
         @history="screen = 'history'"
         @settings="openSettings"
+        @mosaic="screen = 'mosaic'"
         @logout="handleLogout"
       />
 
@@ -191,6 +193,13 @@ onUnmounted(stopQuickTeach)
         @updated="settingsUser = $event"
         @back="screen = 'app'"
         @history="screen = 'history'"
+        @logout="handleLogout"
+      />
+      <MosaicView
+        v-else-if="screen === 'mosaic'"
+        @back="screen = 'app'"
+        @history="screen = 'history'"
+        @settings="openSettings"
         @logout="handleLogout"
       />
 

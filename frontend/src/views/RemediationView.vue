@@ -8,6 +8,7 @@ import {
   downloadRemediated,
   updateEditRegion,
   addManualEdit,
+  deleteEdit,
   renameDetection,
 } from '../api'
 
@@ -19,7 +20,15 @@ const props = defineProps({
 })
 const emit = defineEmits(['restart'])
 
-const proposedEdits = ref((props.remediation.proposed_edits || []).map((e) => ({ ...e })))
+const proposedEdits = ref(
+  (props.remediation.proposed_edits || [])
+    .map((e) => ({ ...e }))
+    .sort((a, b) => {
+      const aManual = props.detections.find((d) => d.detection_id === a.detection_id)?.model_version === 'manual'
+      const bManual = props.detections.find((d) => d.detection_id === b.detection_id)?.model_version === 'manual'
+      return aManual === bManual ? 0 : aManual ? 1 : -1
+    })
+)
 const redaction = props.remediation.text_redaction
 
 // Edits don't carry their own description of what they're for (just a
@@ -319,6 +328,16 @@ function cancelRename() {
 // this list can land on an unrelated checkbox and spuriously fire its
 // change handler. Explicit blur() first sends focus to the safe default,
 // so there's nothing left for the browser to reassign once Vue removes it.
+async function removeManualEdit(edit) {
+  try {
+    await deleteEdit(edit.edit_id)
+    proposedEdits.value = proposedEdits.value.filter((e) => e.edit_id !== edit.edit_id)
+    manualEditIds.delete(edit.edit_id)
+  } catch (err) {
+    error.value = err.message || 'Could not remove that area.'
+  }
+}
+
 async function saveRename(edit) {
   // Both the explicit blur() below (Enter/Esc) and a real click-away funnel
   // through this same @blur handler; the guard makes a second call a no-op
@@ -420,28 +439,47 @@ async function copySuggested() {
             :disabled="confirmed"
             @change="toggleEdit(edit)"
           />
-          <input
-            v-if="renamingEditId === edit.edit_id"
-            v-model="renameDraft"
-            type="text"
-            class="form-control form-control-sm d-inline-block w-auto align-middle"
-            style="max-width: 220px"
-            maxlength="255"
-            autofocus
-            placeholder="Name this area"
-            @keyup.enter="$event.target.blur()"
-            @keyup.esc="cancelRename(); $event.target.blur()"
-            @blur="saveRename(edit)"
-          />
+          <template v-if="renamingEditId === edit.edit_id">
+            <input
+              v-model="renameDraft"
+              type="text"
+              class="form-control form-control-sm d-inline-block w-auto align-middle"
+              style="max-width: 180px"
+              maxlength="255"
+              autofocus
+              placeholder="Name this area"
+              @keyup.enter="$event.target.blur()"
+              @keyup.esc="cancelRename(); $event.target.blur()"
+              @blur="saveRename(edit)"
+            />
+            <button
+              type="button"
+              class="btn btn-link btn-sm p-0 ms-2 text-secondary"
+              style="font-size:0.78rem"
+              @mousedown.prevent="cancelRename()"
+            >
+              Cancel
+            </button>
+          </template>
           <label v-else class="form-check-label small fw-semibold" :for="edit.edit_id">
             {{ editLabel(edit) }}
             <button
               v-if="isManualEdit(edit) && !confirmed"
               type="button"
-              class="btn btn-link btn-sm p-0 ms-1 align-baseline"
+              class="rename-btn"
+              aria-label="Rename this area"
               @click.stop.prevent="startRename(edit)"
             >
-              rename
+              Edit
+            </button>
+            <button
+              v-if="isManualEdit(edit) && !confirmed"
+              type="button"
+              class="remove-btn"
+              aria-label="Remove this area"
+              @click.stop.prevent="removeManualEdit(edit)"
+            >
+              ×
             </button>
           </label>
         </div>
@@ -529,11 +567,57 @@ async function copySuggested() {
   background: #fff;
 }
 .fix-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 8px 0;
+  padding-left: 0 !important;
   border-top: 1px solid #eef2f7;
+}
+.fix-row .form-check-input {
+  float: none;
+  margin: 0;
+  flex-shrink: 0;
+  position: static;
+}
+.fix-row .form-check-label {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  margin-bottom: 0;
+  padding-left: 0;
+}
+.rename-btn {
+  border: none;
+  background: #eef0f3;
+  color: #6b7280;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 6px;
+  margin-left: 6px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.rename-btn:hover {
+  background: #e2e5ea;
+  color: #374151;
 }
 .fix-row:first-of-type {
   border-top: 0;
+}
+.remove-btn {
+  border: none;
+  background: none;
+  color: #9ca3af;
+  font-size: 1rem;
+  line-height: 1;
+  margin-left: auto;
+  padding: 0 2px;
+  cursor: pointer;
+}
+.remove-btn:hover {
+  color: #dc3545;
 }
 .suggested-caption {
   padding: 10px;
