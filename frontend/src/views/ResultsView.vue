@@ -5,6 +5,7 @@ const props = defineProps({
   photoUrl: { type: String, default: null },
   detections: { type: Array, default: () => [] },
   teachableMoment: { type: Object, default: null },
+  mosaicRisk: { type: Object, default: null },
 })
 
 defineEmits(['restart', 'continue'])
@@ -26,6 +27,13 @@ const scale = ref(1)
 function onImageLoad() {
   if (!imgEl.value) return
   scale.value = imgEl.value.clientWidth / imgEl.value.naturalWidth
+}
+
+function formatK(k) {
+  if (!k) return '?'
+  if (k >= 1_000_000) return `~${(k / 1_000_000).toFixed(1)}M`
+  if (k >= 1_000) return `~${Math.round(k / 1_000)}K`
+  return `~${k}`
 }
 
 function boxStyle(region) {
@@ -102,6 +110,25 @@ const hasFindings = computed(() => props.detections.length > 0)
           <p class="small mb-0"><strong>Safer move:</strong> {{ teachableMoment.safer_action }}</p>
         </div>
       </template>
+
+      <div v-if="mosaicRisk" class="mosaic-impact-card mt-3">
+        <p class="eyebrow-mosaic mb-1">Cumulative privacy impact</p>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <span class="impact-crowd">
+            {{ formatK(mosaicRisk.k_before) }} → {{ formatK(mosaicRisk.k_after) }} people share your profile
+          </span>
+          <span
+            class="impact-badge"
+            :class="`impact-badge--${mosaicRisk.risk_level}`"
+          >{{ mosaicRisk.risk_level }}</span>
+        </div>
+        <p v-if="mosaicRisk.delta_bits === 0" class="impact-note mb-0 mt-1">
+          This post adds nothing new to your long-term privacy exposure.
+        </p>
+        <p v-else class="impact-note mb-0 mt-1">
+          Posting this shrinks the crowd of people who share your profile by {{ formatK(mosaicRisk.k_before - mosaicRisk.k_after) }}.
+        </p>
+      </div>
     </div>
 
     <div class="app-action-bar">
@@ -145,5 +172,38 @@ const hasFindings = computed(() => props.detections.length > 0)
 .finding-panel.warn {
   border-color: #f3d48b;
   background: #fffaf0;
+}
+.mosaic-impact-card {
+  padding: 11px 14px;
+  border: 1px solid #d0e0ff;
+  border-radius: 14px;
+  background: #f0f5ff;
+}
+.eyebrow-mosaic {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #2f6fed;
+  margin: 0;
+}
+.impact-crowd {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #172235;
+}
+.impact-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  text-transform: capitalize;
+}
+.impact-badge--low    { background: #e9f8f2; color: #198c68; }
+.impact-badge--medium { background: #fff5df; color: #936509; }
+.impact-badge--high   { background: #fde8e7; color: #d94841; }
+.impact-note {
+  font-size: 0.75rem;
+  color: #667085;
 }
 </style>

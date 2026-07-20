@@ -153,7 +153,7 @@ export async function resumeRemediation(draftId) {
 // leaving it stuck pending forever if they just navigate away.
 export async function cancelRemediation(draftId) {
   const res = await fetchWithRetry(`${REMEDIATE_CONTENT_URL}/drafts/${draftId}/remediate/cancel`, { method: 'POST' })
-  return parseOrThrow(res)
+  if (!res.ok) return parseOrThrow(res)
 }
 
 export function downloadUrl(draftId) {
@@ -235,7 +235,7 @@ export async function addManualEdit(draftId, region) {
 // (the one-line description RemediationView shows next to its checkbox).
 export async function deleteEdit(editId) {
   const res = await fetchWithRetry(`${EDITS_URL}/edits/${editId}`, { method: 'DELETE' })
-  return parseOrThrow(res)
+  if (!res.ok) return parseOrThrow(res)
 }
 
 export async function renameDetection(detectionId, detail) {
@@ -312,6 +312,15 @@ export async function deleteHistoryItems({ draftIds = [], detectionIds = [], qua
 // behind the same auth gate as everything else, so — same reasoning as
 // downloadRemediated — this can't just be a plain <img src>; it has to be a
 // real fetch with the token attached, turned into a local blob URL.
+export async function getMosaicRisk(ownerId, draftId) {
+  const res = await fetchWithRetry(`${DETECT_MOSAIC_RISK_URL}/users/${ownerId}/mosaic-risk`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ draft_id: draftId }),
+  })
+  return parseOrThrow(res)
+}
+
 export async function getMosaicTrajectory(ownerId, onRetry) {
   const res = await fetchWithRetry(
     `${DETECT_MOSAIC_RISK_URL}/users/${ownerId}/mosaic-trajectory`,

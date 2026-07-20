@@ -378,7 +378,11 @@ def confirm_remediation(draft_id):
     # unresolved flag — resolve their detections too, so confirming doesn't
     # leave the post stuck at "pending" in History forever.
     skipped = [e for e in all_edits if e["status"] == "reverted"]
-    if not pending and not skipped:
+    # edits already applied from a previous confirm that was interrupted before
+    # text-detection resolutions were set — allow re-confirming so those
+    # unresolved detections get cleaned up and the post leaves "pending".
+    already_applied = [e for e in all_edits if e["status"] == "applied"]
+    if not pending and not skipped and not already_applied:
         return jsonify({"error": "no pending edits to confirm"}), 400
 
     confirmed = []
@@ -396,6 +400,21 @@ def confirm_remediation(draft_id):
 
     for e in skipped:
         _set_detection_resolution(e.get("detection_id"), "rejected", auth_headers)
+
+    for e in already_applied:
+        _set_detection_resolution(e.get("detection_id"), "accepted", auth_headers)
+
+    # Text-source detections never get edit records (they get a caption
+    # suggestion instead), so the loop above never touches them — resolve
+    # them here so the post doesn't stay "pending" in History forever.
+    det_resp = requests.get(
+        f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections", headers=auth_headers
+    )
+    if det_resp.status_code == 200:
+        edit_detection_ids = {e.get("detection_id") for e in all_edits}
+        for d in det_resp.json():
+            if d.get("detection_id") not in edit_detection_ids:
+                _set_detection_resolution(d.get("detection_id"), "accepted", auth_headers)
 
     # rebuild from the original using every currently-applied edit, not just
     # the ones confirmed this call, so repeated confirm/revert/restore cycles

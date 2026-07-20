@@ -10,7 +10,7 @@ import QuarantineView from './views/QuarantineView.vue'
 import HistoryView from './views/HistoryView.vue'
 import SettingsView from './views/SettingsView.vue'
 import MosaicView from './views/MosaicView.vue'
-import { uploadPost, processDraft, getDetections, getTeachableMoment, getToken, getMe, logout as apiLogout } from './api'
+import { uploadPost, processDraft, getDetections, getTeachableMoment, getMosaicRisk, getToken, getMe, logout as apiLogout } from './api'
 import { quickTeachTips } from './content/loadQuickTeach'
 
 // 0 login, 1 compose, 2 scanning, 3 results, 4 action, 5 error — skip
@@ -22,6 +22,7 @@ const detections = ref([])
 const draftId = ref(null)
 const scanOutcome = ref(null)
 const teachableMoment = ref(null)
+const mosaicRisk = ref(null)
 // Set directly from scanOutcome.remediation, or replaced by quarantine's
 // "edit" handoff, which also produces a remediation payload to act on.
 const activeRemediation = ref(null)
@@ -44,9 +45,8 @@ async function openSettings() {
     settingsUser.value = await getMe()
     screen.value = 'settings'
   } catch (err) {
-    // screen stays 'app', so route through the existing step=5 error
-    // display rather than a message with nowhere to render.
     errorMessage.value = err.message || 'Could not load your settings.'
+    screen.value = 'app'
     step.value = 5
   }
 }
@@ -80,12 +80,17 @@ async function handleShare(payload) {
     draftId.value = draft.draft_id
 
     scanOutcome.value = await processDraft(draft.draft_id, onRetry)
-    detections.value = await getDetections(draft.draft_id, onRetry)
-    try {
-      teachableMoment.value = await getTeachableMoment(draft.draft_id, onRetry)
-    } catch {
-      teachableMoment.value = null
-    }
+    const [detections_, me_] = await Promise.all([
+      getDetections(draft.draft_id, onRetry),
+      getMe(),
+    ])
+    detections.value = detections_
+    const [tm, mosaic] = await Promise.all([
+      getTeachableMoment(draft.draft_id, onRetry).catch(() => null),
+      getMosaicRisk(me_.user_id, draft.draft_id).catch(() => null),
+    ])
+    teachableMoment.value = tm
+    mosaicRisk.value = mosaic
     if (scanOutcome.value.outcome === 'remediated') {
       activeRemediation.value = scanOutcome.value.remediation
     }
@@ -120,6 +125,7 @@ function restart() {
   draftId.value = null
   scanOutcome.value = null
   teachableMoment.value = null
+  mosaicRisk.value = null
   activeRemediation.value = null
   errorMessage.value = ''
 }
@@ -185,6 +191,7 @@ onUnmounted(stopQuickTeach)
         @back="screen = 'app'"
         @history="screen = 'history'"
         @settings="openSettings"
+        @mosaic="screen = 'mosaic'"
         @logout="handleLogout"
       />
       <SettingsView
@@ -193,6 +200,8 @@ onUnmounted(stopQuickTeach)
         @updated="settingsUser = $event"
         @back="screen = 'app'"
         @history="screen = 'history'"
+        @settings="openSettings"
+        @mosaic="screen = 'mosaic'"
         @logout="handleLogout"
       />
       <MosaicView
@@ -200,6 +209,7 @@ onUnmounted(stopQuickTeach)
         @back="screen = 'app'"
         @history="screen = 'history'"
         @settings="openSettings"
+        @mosaic="screen = 'mosaic'"
         @logout="handleLogout"
       />
 
@@ -252,7 +262,7 @@ onUnmounted(stopQuickTeach)
           <span class="scan-mascot-shadow" aria-hidden="true"></span>
           <span class="visually-hidden">Scanning…</span>
         </div>
-        <p class="fw-bold mb-1">Scanning your post......</p>
+        <p class="fw-bold mb-1">Scanning your post<span class="scan-dot">.</span><span class="scan-dot">.</span><span class="scan-dot">.</span></p>
         <div v-if="quickTeachTip" class="mt-3 text-center">
           <p class="small mb-0 bold-note">{{ quickTeachTip }}</p>
         </div>
@@ -264,6 +274,7 @@ onUnmounted(stopQuickTeach)
         :photo-url="photoPreviewUrl"
         :detections="detections"
         :teachable-moment="teachableMoment"
+        :mosaic-risk="mosaicRisk"
         @restart="restart"
         @continue="step = 4"
       />

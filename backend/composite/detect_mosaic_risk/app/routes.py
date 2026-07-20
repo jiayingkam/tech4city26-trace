@@ -1,6 +1,8 @@
 import logging
 import os
 import re
+from collections import Counter
+
 import requests
 
 _log = logging.getLogger(__name__)
@@ -163,6 +165,13 @@ def _get_prior_observations(owner_id: str, exclude_draft_id: str) -> list[Observ
             headers=headers,
         )
         detections = det_resp.json() if det_resp.status_code == 200 else []
+
+        # Status is not stored on the draft — derive it from detection resolutions.
+        # A post is "accepted" when every detection is resolved accepted (or there
+        # are none). Skip pending/rejected posts — they were never published.
+        if any(d.get("resolution") != "accepted" for d in detections):
+            continue
+
         observations += _observations_for_draft(draft, detections)
 
     return observations
@@ -305,6 +314,8 @@ def mosaic_trajectory(owner_id):
 
     trajectory = []
     accumulated_bits = 0.0
+    # Counts how many posts had at least one contributing observation of each kind.
+    overall_type_counts: Counter = Counter()
 
     for draft in drafts:
         det_resp = requests.get(
@@ -312,6 +323,11 @@ def mosaic_trajectory(owner_id):
             headers=headers,
         )
         detections = det_resp.json() if det_resp.status_code == 200 else []
+
+        # Skip posts that haven't been confirmed — pending/rejected posts
+        # were never published so they shouldn't affect the trajectory.
+        if any(d.get("resolution") != "accepted" for d in detections):
+            continue
 
         post_observations = _observations_for_draft(draft, detections)
 
@@ -325,7 +341,6 @@ def mosaic_trajectory(owner_id):
         k_before = _bits_to_k(accumulated_bits)
         accumulated_bits += post_bits
         k_after = _bits_to_k(accumulated_bits)
-        delta_bits = round(post_bits, 2)
 
         if k_after <= 1_000:
             risk_level = "high"
@@ -333,6 +348,13 @@ def mosaic_trajectory(owner_id):
             risk_level = "medium"
         else:
             risk_level = "low"
+
+        # Count each kind once per post (not once per observation) so the summary
+        # reads naturally as "location appeared in N posts."
+        kinds_this_post = {
+            obs.kind for obs in post_observations if (obs.contribution_bits or 0.0) > 0
+        }
+        overall_type_counts.update(kinds_this_post)
 
         trajectory.append({
             "draft_id": draft["draft_id"],
@@ -349,6 +371,7 @@ def mosaic_trajectory(owner_id):
         "owner_id": owner_id,
         "post_count": len(trajectory),
         "final_k": _bits_to_k(accumulated_bits),
+        "type_summary": dict(overall_type_counts),
         "trajectory": trajectory,
     }), 200
 

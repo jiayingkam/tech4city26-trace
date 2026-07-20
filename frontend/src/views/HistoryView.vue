@@ -14,7 +14,7 @@ import {
   resumeRemediation,
 } from '../api'
 
-defineEmits(['back', 'history', 'settings', 'logout'])
+defineEmits(['back', 'history', 'settings', 'mosaic', 'logout'])
 
 // Tapping a quarantined post takes over the whole screen with the same
 // "held for review" / "clean up" flow used right after scanning — reused
@@ -259,6 +259,7 @@ function cooldownRemaining(post) {
     v-if="subScreen"
     @history="$emit('history')"
     @settings="$emit('settings')"
+    @mosaic="$emit('mosaic')"
     @logout="$emit('logout')"
   />
 
@@ -288,7 +289,7 @@ function cooldownRemaining(post) {
 
   <div v-else class="app-screen">
     <div class="app-header">
-      <HamburgerMenu @history="$emit('history')" @settings="$emit('settings')" @logout="$emit('logout')" />
+      <HamburgerMenu @history="$emit('history')" @settings="$emit('settings')" @mosaic="$emit('mosaic')" @logout="$emit('logout')" />
       <h1 class="app-title">History</h1>
       <p class="app-subtitle">Review past scans and cleanups.</p>
     </div>
