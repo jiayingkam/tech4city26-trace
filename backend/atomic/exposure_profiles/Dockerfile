@@ -20,9 +20,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg ca-c
     ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 unixodbc-dev && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
     
-COPY requirements.txt .
+COPY atomic/exposure_profiles/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app/ app/
+COPY shared/trace_auth trace_auth/
+COPY shared/trace_cors trace_cors/
+COPY atomic/exposure_profiles/app/ app/
 
 CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5005} --workers 1 --threads 8 --timeout 0 app.app:'create_app()'"]

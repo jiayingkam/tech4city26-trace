@@ -8,6 +8,7 @@ const QUARANTINE_HIGH_RISK_URL = import.meta.env.VITE_QUARANTINE_HIGH_RISK_URL |
 const GENERATE_TEACHABLE_MOMENT_URL = import.meta.env.VITE_GENERATE_TEACHABLE_MOMENT_URL || 'http://localhost:5009'
 const USERS_URL = import.meta.env.VITE_USERS_URL || 'http://localhost:5001'
 const MANAGE_HISTORY_URL = import.meta.env.VITE_MANAGE_HISTORY_URL || 'http://localhost:5015'
+const UPDATE_EXPOSURE_PROFILE_URL = import.meta.env.VITE_UPDATE_EXPOSURE_PROFILE_URL || 'http://localhost:5013'
 
 // sessionStorage (not localStorage) so the token disappears when the tab
 // closes, rather than lingering on the device indefinitely — the closest
@@ -337,6 +338,19 @@ export async function getStrangerProfile(ownerId, onRetry) {
     { onRetry },
   )
   return parseOrThrow(res)
+}
+
+// Reads the materialized exposure profile (trajectory + stranger + score, all in
+// one blob) from update_exposure_profile, which serves the stored copy and only
+// recomputes on a cache miss. Returns the inner profile object, or null if empty.
+export async function getExposureProfile(ownerId, onRetry) {
+  const res = await fetchWithRetry(
+    `${UPDATE_EXPOSURE_PROFILE_URL}/users/${ownerId}/profile`,
+    undefined,
+    { onRetry },
+  )
+  const data = await parseOrThrow(res)
+  return data.profile || null
 }
 
 export async function getDraftThumbnail(draftId) {

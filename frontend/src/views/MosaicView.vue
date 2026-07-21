@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getMe, getMosaicTrajectory, getStrangerProfile } from '../api'
+import { getMe, getExposureProfile } from '../api'
 import HamburgerMenu from '../components/HamburgerMenu.vue'
 
 // Window-level cache — survives screen navigation AND Vite HMR module re-evaluation.
@@ -134,13 +134,9 @@ async function load(force = false) {
   error.value = null
   try {
     const user = await getMe()
-    // Both endpoints replay the post history; fire them together, and don't let a
-    // stranger-profile failure block the score from rendering.
-    const [data, stranger] = await Promise.all([
-      getMosaicTrajectory(user.user_id),
-      getStrangerProfile(user.user_id).catch(() => ({ inferences: [], overall_confidence: 0 })),
-    ])
-    data.stranger = stranger
+    // One call to the materialized profile — trajectory, score, and stranger-view
+    // all in a single stored blob (recomputed server-side only on a cache miss).
+    const data = (await getExposureProfile(user.user_id)) || {}
     _setCache(data)
     applyCache(data)
   } catch (err) {
