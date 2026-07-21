@@ -36,6 +36,13 @@ function formatK(k) {
   return `~${k}`
 }
 
+function formatOneIn(k) {
+  if (!k) return '?'
+  if (k >= 1_000_000) return `1 in ${(k / 1_000_000).toFixed(1)}M`
+  if (k >= 1_000) return `1 in ${Math.round(k / 1_000)}K`
+  return `1 in ${k}`
+}
+
 function boxStyle(region) {
   return {
     left: `${region.x * scale.value}px`,
@@ -115,18 +122,16 @@ const hasFindings = computed(() => props.detections.length > 0)
         <p class="eyebrow-mosaic mb-1">Cumulative privacy impact</p>
         <div class="d-flex align-items-center gap-2 flex-wrap">
           <span class="impact-crowd">
-            {{ formatK(mosaicRisk.k_before) }} → {{ formatK(mosaicRisk.k_after) }} people share your profile
+            {{ formatOneIn(mosaicRisk.k_before) }} → {{ formatOneIn(mosaicRisk.k_after) }}
           </span>
-          <span
-            class="impact-badge"
-            :class="`impact-badge--${mosaicRisk.risk_level}`"
-          >{{ mosaicRisk.risk_level }}</span>
+          <span class="impact-badge" :class="`impact-badge--${mosaicRisk.risk_level}`">{{ mosaicRisk.risk_level }}</span>
         </div>
         <p v-if="mosaicRisk.delta_bits === 0" class="impact-note mb-0 mt-1">
           This post adds nothing new to your long-term privacy exposure.
         </p>
         <p v-else class="impact-note mb-0 mt-1">
-          Posting this shrinks the crowd of people who share your profile by {{ formatK(mosaicRisk.k_before - mosaicRisk.k_after) }}.
+          This post makes you identifiable to {{ formatOneIn(mosaicRisk.k_after) }} people in Singapore —
+          the fewer the people, the more uniquely identifiable you are.
         </p>
       </div>
     </div>

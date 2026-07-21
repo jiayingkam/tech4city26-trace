@@ -87,7 +87,9 @@ function closeSubScreen() {
   activeRemediation.value = null
   activeDetections.value = []
   activeTeachableMoment.value = null
-  load() // the post's status likely just changed (edited/released/deleted)
+  // Post status changed — privacy score may have shifted.
+  window.__mosaicCache = null
+  load()
 }
 
 const STATUS_LABELS = {

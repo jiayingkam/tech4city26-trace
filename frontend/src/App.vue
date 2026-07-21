@@ -128,6 +128,8 @@ function restart() {
   mosaicRisk.value = null
   activeRemediation.value = null
   errorMessage.value = ''
+  // Invalidate the privacy score cache so the next visit reflects this post.
+  window.__mosaicCache = null
 }
 let quickTeachTimer = null
 let remainingQuickTeachTips = []

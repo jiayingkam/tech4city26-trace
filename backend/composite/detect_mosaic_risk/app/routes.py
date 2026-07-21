@@ -33,6 +33,10 @@ _HEDGE_WORDS = (
     "possible", "possibly", "unclear", "too unclear",
 )
 
+# Fraction of bits retained after a user accepts a cleanup fix (blur/strip).
+# Blurring reduces contextual signal significantly but the surrounding scene still leaks.
+_CLEANUP_RESIDUAL = 0.15
+
 # Proper-noun-looking words that are NOT concrete identifiers (common in scanner descriptions)
 _GENERIC_CAPS = {
     "This", "The", "A", "An", "No", "School", "GPS", "OCR",
@@ -117,19 +121,23 @@ def _detection_to_observation(det: dict) -> Observation:
 
     Vague detections (unclear signage, low-confidence guesses) get 0 bits so
     they appear in the response for transparency but don't move k.
+    Detections where the user accepted the fix (resolution=accepted) also get
+    0 bits — the harmful content was removed before posting.
     Kind/target are derived from the detection category, not hardcoded to
     possession/identity.
     """
     category = det.get("category", "unknown")
     kind, target = _CATEGORY_KIND_TARGET.get(category, ("possession", "identity"))
     detail = det.get("detail") or category
+    raw_bits = _detection_bits(det)
+    bits = raw_bits * _CLEANUP_RESIDUAL if det.get("resolution") == "accepted" else raw_bits
     return Observation(
         kind=kind,
         target=target,
         surface=detail,
         entity=None,
         constraint=f"{category}: {detail}",
-        contribution_bits=_detection_bits(det),
+        contribution_bits=bits,
     )
 
 
@@ -166,10 +174,12 @@ def _get_prior_observations(owner_id: str, exclude_draft_id: str) -> list[Observ
         )
         detections = det_resp.json() if det_resp.status_code == 200 else []
 
-        # Status is not stored on the draft — derive it from detection resolutions.
-        # A post is "accepted" when every detection is resolved accepted (or there
-        # are none). Skip pending/rejected posts — they were never published.
-        if any(d.get("resolution") != "accepted" for d in detections):
+        # A post is published if all detections are resolved AND at least one was
+        # accepted (user confirmed the remediation flow). Posts where every
+        # detection is rejected are cancellations — never published.
+        all_resolved = not any(d.get("resolution") is None for d in detections)
+        any_accepted = any(d.get("resolution") == "accepted" for d in detections)
+        if not all_resolved or (detections and not any_accepted):
             continue
 
         observations += _observations_for_draft(draft, detections)
@@ -283,6 +293,60 @@ def check_mosaic_risk(owner_id):
     }), 200
 
 
+def _behavior_factor(trajectory: list[dict]) -> dict:
+    """Score how much a user relies on app cleanup vs. naturally posting clean content.
+
+    Compares cleanup_reliance (fraction of image-detection bits saved by accepting fixes)
+    across the first and second halves of the post history. Improving over time gets full
+    credit; consistently high reliance with no trend reduces the factor.
+
+    Returns behavior_factor (0.70–1.00), behavior_label, and behavior_penalty_pts.
+    """
+    with_images = [p for p in trajectory if p.get("raw_image_bits", 0) > 0]
+
+    if len(with_images) == 0:
+        # All images were clean — no risky content detected in any post.
+        return {"behavior_factor": 1.0, "behavior_label": "clean", "behavior_penalty_pts": 0}
+
+    if len(with_images) < 3:
+        # Too few image-detection posts for a trend — judge on overall reliance alone.
+        avg = sum(p["cleanup_reliance"] for p in with_images) / len(with_images)
+        if avg < 0.3:
+            return {"behavior_factor": 1.0, "behavior_label": "clean", "behavior_penalty_pts": 0}
+        if avg < 0.6:
+            return {"behavior_factor": 0.90, "behavior_label": "steady", "behavior_penalty_pts": 0}
+        return {"behavior_factor": 0.80, "behavior_label": "reliant", "behavior_penalty_pts": 0}
+
+    def avg_reliance(pts):
+        return sum(p["cleanup_reliance"] for p in pts) / len(pts)
+
+    mid = len(with_images) // 2
+    early_avg = avg_reliance(with_images[:mid])
+    recent_avg = avg_reliance(with_images[mid:])
+    overall_avg = avg_reliance(with_images)
+    improvement = early_avg - recent_avg  # positive = getting cleaner over time
+
+    if overall_avg < 0.2:
+        # Rarely needs cleanup — naturally clean poster.
+        factor, label = 1.0, "clean"
+    elif improvement > 0.25:
+        # Meaningfully improving: posts are getting cleaner over time.
+        factor, label = 0.93, "improving"
+    elif improvement > 0.05 or overall_avg < 0.5:
+        # Slight improvement or moderate reliance — give benefit of the doubt.
+        factor, label = 0.85, "steady"
+    else:
+        # High reliance, no improvement trend — user is not learning.
+        factor = max(0.70, 1.0 - overall_avg * 0.35)
+        label = "reliant"
+
+    return {
+        "behavior_factor": round(factor, 2),
+        "behavior_label": label,
+        "behavior_penalty_pts": 0,  # frontend computes displayed score as score * factor
+    }
+
+
 @bp.get("/users/<owner_id>/mosaic-trajectory")
 def mosaic_trajectory(owner_id):
     """Replay all posts for a user in timestamp order and return k after each post.
@@ -313,8 +377,9 @@ def mosaic_trajectory(owner_id):
     drafts = sorted(drafts_resp.json(), key=lambda d: d.get("captured_at", ""))
 
     trajectory = []
+    saves = []
     accumulated_bits = 0.0
-    # Counts how many posts had at least one contributing observation of each kind.
+    saved_bits_total = 0.0
     overall_type_counts: Counter = Counter()
 
     for draft in drafts:
@@ -324,18 +389,52 @@ def mosaic_trajectory(owner_id):
         )
         detections = det_resp.json() if det_resp.status_code == 200 else []
 
-        # Skip posts that haven't been confirmed — pending/rejected posts
-        # were never published so they shouldn't affect the trajectory.
-        if any(d.get("resolution") != "accepted" for d in detections):
+        all_resolved = not any(d.get("resolution") is None for d in detections)
+        any_accepted = any(d.get("resolution") == "accepted" for d in detections)
+
+        # Pending — still awaiting user decision, skip entirely.
+        if not all_resolved:
             continue
 
-        post_observations = _observations_for_draft(draft, detections)
+        # All detections rejected = user cancelled/chose not to post.
+        # Record as a privacy save: compute the bits that would have been exposed.
+        if detections and not any_accepted:
+            # Use _detection_bits directly (ignoring resolution) for would-be impact.
+            would_be_bits = sum(
+                _detection_bits(d) for d in detections if d.get("detail")
+            )
+            if would_be_bits > 0:
+                saves.append({
+                    "draft_id": draft["draft_id"],
+                    "text_content": draft.get("text_content", ""),
+                    "captured_at": draft.get("captured_at"),
+                    "would_be_delta_bits": round(would_be_bits, 2),
+                })
+                saved_bits_total += would_be_bits
+            continue
+
+        # Published post (clean, or partially/fully remediated).
+        # _detection_to_observation already gives residual bits to accepted detections.
+        image_detections = [d for d in detections if d.get("detail")]
+        text_obs = extract_observations(draft.get("text_content") or "")
+        image_obs = _dedup_observations([_detection_to_observation(d) for d in image_detections])
+        post_observations = text_obs + image_obs
 
         for obs in post_observations:
             _log.debug(
                 "trajectory draft=%s obs=%r bits=%.2f",
                 draft["draft_id"], obs.constraint, obs.contribution_bits or 0.0,
             )
+
+        # raw_image_bits: what image detections would cost with no cleanup.
+        # actual_image_bits: what they cost after applying cleanup residual.
+        # cleanup_reliance: fraction of image exposure saved by the app (0 = no cleanup needed).
+        raw_image_bits = sum(_detection_bits(d) for d in image_detections)
+        actual_image_bits = sum((obs.contribution_bits or 0.0) for obs in image_obs)
+        cleanup_reliance = (
+            (raw_image_bits - actual_image_bits) / raw_image_bits
+            if raw_image_bits > 0 else 0.0
+        )
 
         post_bits = sum((obs.contribution_bits or 0.0) for obs in post_observations)
         k_before = _bits_to_k(accumulated_bits)
@@ -349,12 +448,12 @@ def mosaic_trajectory(owner_id):
         else:
             risk_level = "low"
 
-        # Count each kind once per post (not once per observation) so the summary
-        # reads naturally as "location appeared in N posts."
         kinds_this_post = {
             obs.kind for obs in post_observations if (obs.contribution_bits or 0.0) > 0
         }
         overall_type_counts.update(kinds_this_post)
+
+        cleaned = any(d.get("resolution") == "accepted" for d in detections)
 
         trajectory.append({
             "draft_id": draft["draft_id"],
@@ -364,8 +463,13 @@ def mosaic_trajectory(owner_id):
             "k_before": k_before,
             "k_after": k_after,
             "delta_bits": round(post_bits, 2),
+            "raw_image_bits": round(raw_image_bits, 2),
+            "cleanup_reliance": round(cleanup_reliance, 3),
             "risk_level": risk_level,
+            "cleaned": cleaned,
         })
+
+    behavior = _behavior_factor(trajectory)
 
     return jsonify({
         "owner_id": owner_id,
@@ -373,6 +477,9 @@ def mosaic_trajectory(owner_id):
         "final_k": _bits_to_k(accumulated_bits),
         "type_summary": dict(overall_type_counts),
         "trajectory": trajectory,
+        "saves": saves,
+        "saved_bits": round(saved_bits_total, 2),
+        **behavior,
     }), 200
 
 
