@@ -330,6 +330,15 @@ export async function getMosaicTrajectory(ownerId, onRetry) {
   return parseOrThrow(res)
 }
 
+export async function getStrangerProfile(ownerId, onRetry) {
+  const res = await fetchWithRetry(
+    `${DETECT_MOSAIC_RISK_URL}/users/${ownerId}/stranger-profile`,
+    undefined,
+    { onRetry },
+  )
+  return parseOrThrow(res)
+}
+
 export async function getDraftThumbnail(draftId) {
   const res = await fetchWithRetry(`${UPLOAD_POST_URL}/drafts/${draftId}/original`)
   if (!res.ok) return null

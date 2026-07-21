@@ -10,6 +10,7 @@ from flask import Blueprint, jsonify, request
 
 from .extraction import Observation, extract_observations
 from .inference import K_BASELINE, _bits_to_k, compute_delta
+from .synthesis import synthesise_stranger_view
 
 
 bp = Blueprint("detect_mosaic_risk", __name__)
@@ -193,6 +194,48 @@ def _get_draft_detections(draft_id: str) -> list[dict]:
         f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections", headers=_auth_headers()
     )
     return resp.json() if resp.status_code == 200 else []
+
+
+def _is_published(detections: list[dict]) -> bool:
+    """A post counts as published when every detection is resolved and at least one
+    was accepted (the user went through and confirmed the remediation flow). Posts
+    with any unresolved detection are still pending; all-rejected posts were cancelled."""
+    all_resolved = not any(d.get("resolution") is None for d in detections)
+    any_accepted = any(d.get("resolution") == "accepted" for d in detections)
+    return all_resolved and (not detections or any_accepted)
+
+
+# Total contribution bits at which a stranger can effectively pin the person down.
+# Used only to scale the headline confidence percentage — tune to taste.
+_CONFIDENCE_BITS_CAP = 12.0
+
+
+def _published_signal_observations(owner_id: str) -> list[Observation]:
+    """All identity-narrowing observations (bits > 0) across the user's published posts.
+
+    Shares the publish filter with the trajectory endpoint. Only observations that
+    actually move k are returned, so vague or cleaned findings can't seed a wrong guess
+    in the stranger-profile synthesis."""
+    headers = _auth_headers()
+    drafts_resp = requests.get(
+        f"{CONTENT_DRAFTS_SERVICE_URL}/users/{owner_id}/drafts", headers=headers
+    )
+    if drafts_resp.status_code != 200:
+        return []
+
+    observations: list[Observation] = []
+    for draft in drafts_resp.json():
+        det_resp = requests.get(
+            f"{DETECTIONS_SERVICE_URL}/drafts/{draft['draft_id']}/detections", headers=headers
+        )
+        detections = det_resp.json() if det_resp.status_code == 200 else []
+        if not _is_published(detections):
+            continue
+        observations += [
+            o for o in _observations_for_draft(draft, detections)
+            if (o.contribution_bits or 0.0) > 0
+        ]
+    return observations
 
 
 @bp.post("/users/<owner_id>/mosaic-risk")
@@ -480,6 +523,50 @@ def mosaic_trajectory(owner_id):
         "saves": saves,
         "saved_bits": round(saved_bits_total, 2),
         **behavior,
+    }), 200
+
+
+@bp.get("/users/<owner_id>/stranger-profile")
+def stranger_profile(owner_id):
+    """Synthesise 'what a stranger could learn' from the user's whole posting history.
+    Combines every identity-narrowing observation across published posts into plain-English
+    inferences, each grounded in (and citing) the observations it rests on.
+    ---
+    tags:
+      - Mosaic Risk
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: owner_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: Grounded stranger-view inferences with an overall confidence score.
+      502:
+        description: Upstream service error.
+    """
+    observations = _published_signal_observations(owner_id)
+
+    if not observations:
+        return jsonify({
+            "owner_id": owner_id,
+            "inferences": [],
+            "overall_confidence": 0,
+            "observation_count": 0,
+        }), 200
+
+    inferences = synthesise_stranger_view(observations)
+    total_bits = sum((o.contribution_bits or 0.0) for o in observations)
+    # Headline confidence reflects how much real signal exists, not the model's certainty.
+    overall_confidence = min(99, round(total_bits / _CONFIDENCE_BITS_CAP * 100))
+
+    return jsonify({
+        "owner_id": owner_id,
+        "inferences": inferences,
+        "overall_confidence": overall_confidence,
+        "observation_count": len(observations),
     }), 200
 
 

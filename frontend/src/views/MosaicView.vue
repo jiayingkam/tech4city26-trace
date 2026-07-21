@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getMe, getMosaicTrajectory } from '../api'
+import { getMe, getMosaicTrajectory, getStrangerProfile } from '../api'
 import HamburgerMenu from '../components/HamburgerMenu.vue'
 
 // Window-level cache — survives screen navigation AND Vite HMR module re-evaluation.
@@ -20,6 +20,8 @@ const saves = ref(_getCache()?.saves || [])
 const savedBits = ref(_getCache()?.saved_bits || 0)
 const behaviorFactor = ref(_getCache()?.behavior_factor ?? 1.0)
 const behaviorLabel = ref(_getCache()?.behavior_label || 'building')
+const strangerInferences = ref(_getCache()?.stranger?.inferences || [])
+const strangerConfidence = ref(_getCache()?.stranger?.overall_confidence || 0)
 const loading = ref(!_getCache())
 const error = ref(null)
 
@@ -122,6 +124,8 @@ function applyCache(data) {
   savedBits.value = data.saved_bits || 0
   behaviorFactor.value = data.behavior_factor ?? 1.0
   behaviorLabel.value = data.behavior_label || 'building'
+  strangerInferences.value = data.stranger?.inferences || []
+  strangerConfidence.value = data.stranger?.overall_confidence || 0
 }
 
 async function load(force = false) {
@@ -130,7 +134,13 @@ async function load(force = false) {
   error.value = null
   try {
     const user = await getMe()
-    const data = await getMosaicTrajectory(user.user_id)
+    // Both endpoints replay the post history; fire them together, and don't let a
+    // stranger-profile failure block the score from rendering.
+    const [data, stranger] = await Promise.all([
+      getMosaicTrajectory(user.user_id),
+      getStrangerProfile(user.user_id).catch(() => ({ inferences: [], overall_confidence: 0 })),
+    ])
+    data.stranger = stranger
     _setCache(data)
     applyCache(data)
   } catch (err) {
@@ -214,6 +224,23 @@ onMounted(load)
             Based on {{ postCount }} post{{ postCount === 1 ? '' : 's' }} ·
             the fewer the people, the more identifiable you are
           </p>
+        </div>
+
+        <!-- What a stranger learns -->
+        <div v-if="strangerInferences.length" class="stranger-card p-3 rounded-3">
+          <div class="d-flex align-items-center justify-content-between mb-1">
+            <p class="mb-0 small fw-bold stranger-title">🕵️ What a stranger could learn</p>
+            <span class="stranger-conf">{{ strangerConfidence }}% confident</span>
+          </div>
+          <p class="mb-2 x-small stranger-sub">By combining your posts, someone could infer:</p>
+          <div v-for="(inf, i) in strangerInferences" :key="i" class="stranger-row">
+            <span class="stranger-dot" :class="`conf--${inf.confidence}`"></span>
+            <div class="flex-grow-1">
+              <p class="mb-0 small">{{ inf.statement }}</p>
+              <p class="mb-0 stranger-cite">from {{ inf.based_on.join(' · ') }}</p>
+            </div>
+            <span class="stranger-conf-tag" :class="`conf--${inf.confidence}`">{{ inf.confidence }}</span>
+          </div>
         </div>
 
         <!-- Tips -->
@@ -381,4 +408,61 @@ onMounted(load)
   font-weight: 700;
   color: var(--trace-text, #1a1a2e);
 }
+.stranger-card {
+  background: #1a1d2b;
+  color: #f2f4f8;
+  border: 1px solid #2c3145;
+}
+.stranger-title {
+  color: #fff;
+}
+.stranger-sub {
+  color: #aeb4c6;
+}
+.stranger-conf {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #ffd479;
+  background: rgba(255, 212, 121, 0.12);
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.stranger-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 0;
+  border-top: 1px solid #2c3145;
+}
+.stranger-row .small {
+  color: #f2f4f8;
+}
+.stranger-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+.stranger-cite {
+  font-size: 0.64rem;
+  color: #8b91a6;
+  margin-top: 1px;
+}
+.stranger-conf-tag {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+  align-self: center;
+}
+.conf--high  { background: #d94841; color: #fff; }
+.conf--medium { background: #f4b740; color: #3a2c00; }
+.conf--low   { background: #4a5169; color: #d3d8e6; }
+.stranger-dot.conf--high  { background: #ff6b63; }
+.stranger-dot.conf--medium { background: #f4b740; }
+.stranger-dot.conf--low   { background: #7a8199; }
 </style>
