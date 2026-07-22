@@ -59,7 +59,7 @@ Build and start the whole backend against a local SQL Server container — no Az
 
 ```bash
 cd backend
-docker compose -f docker-compose-dev.yml up --build
+docker compose -f docker-compose.yml -f docker-compose-dev.yml up --build
 ```
 
 This brings up a `local_db` container plus every atomic and composite service, wired to talk to `local_db` instead of `azure_db`. The `trace_dev` database and its tables are created automatically on every boot — no manual `init-db` step needed (see "Recreating the database" below). Data persists across restarts in the `local_db_data` volume.
@@ -67,13 +67,13 @@ This brings up a `local_db` container plus every atomic and composite service, w
 To stop:
 
 ```bash
-docker compose -f docker-compose-dev.yml down
+docker compose -f docker-compose.yml -f docker-compose-dev.yml down
 ```
 
 For a clean slate (also wipes the local database):
 
 ```bash
-docker compose -f docker-compose-dev.yml down -v
+docker compose -f docker-compose.yml -f docker-compose-dev.yml down -v
 ```
 
 Then, start your frontend in a separate terminal:
@@ -109,7 +109,7 @@ def init_db():
     db.create_all()
 ```
 
-**In the local dev stack**, this already runs automatically as part of each service's startup command (see `docker-compose-dev.yml`) — new tables just appear the next time you `docker compose -f docker-compose-dev.yml up`, nothing to run yourself.
+**In the local dev stack**, this already runs automatically as part of each service's startup command (see `docker-compose-dev.yml`) — new tables just appear the next time you `docker compose -f docker-compose.yml -f docker-compose-dev.yml up`, nothing to run yourself.
 
 **Against the real Azure DB**, it does **not** run automatically — it used to run on every cold start, but that meant paying for a DB wake-up and a full schema check on every boot, so it was pulled out into a one-off manual command there.
 
@@ -172,7 +172,7 @@ This script predates `upload_post` and creates drafts by writing directly into t
 cd backend
 
 # 1. Bring up the dev stack (local SQL Server, not Azure)
-docker compose -f docker-compose-dev.yml up --build -d content_drafts detections edits \
+docker compose -f docker-compose.yml -f docker-compose-dev.yml up --build -d content_drafts detections edits \
   quarantine_items scan_draft remediate_content quarantine_high_risk
 
 # 2. Build and run the smoke test as a standalone container on the same network
@@ -180,7 +180,7 @@ docker build -t backend-smoke_test ./testing/smoke
 docker run --rm --network backend_default -v backend_draft_storage:/service/storage backend-smoke_test
 
 # 3. Tear down when done
-docker compose -f docker-compose-dev.yml down
+docker compose -f docker-compose.yml -f docker-compose-dev.yml down
 ```
 
 **Against the real Azure DB** (only when you specifically need to validate against production infra):

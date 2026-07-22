@@ -1,12 +1,11 @@
-include:
-  - docker-compose.yml
-
 # ── Local dev stack ──────────────────────────────────────────────────────
-# `docker compose -f docker-compose-dev.yml up --build` brings up the whole
-# backend against a local SQL Server container instead of the real Azure DB
-# (see docker-compose.yml's `azure_db` service), so day-to-day local dev and
-# testing doesn't burn Azure compute. Not used for CI/production - that still
-# runs against the real Azure DB via docker-compose.yml directly.
+# Run as an override on top of the base file:
+#   docker compose -f docker-compose.yml -f docker-compose-dev.yml up --build
+# This brings up the whole backend against a local SQL Server container
+# instead of the real Azure DB (see docker-compose.yml's `azure_db` service),
+# so day-to-day local dev and testing doesn't burn Azure compute. Not used
+# for CI/production - that still runs against the real Azure DB via
+# docker-compose.yml directly.
 services:
   # Nothing below depends on azure_db anymore (each atomic service's
   # depends_on is fully replaced further down), so gating it behind a profile

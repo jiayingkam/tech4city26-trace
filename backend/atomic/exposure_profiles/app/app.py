@@ -5,6 +5,7 @@ from flask_cors import CORS
 from flask_swagger import swagger
 from flask_swagger_ui import get_swaggerui_blueprint
 from dotenv import load_dotenv
+from sqlalchemy.engine import URL
 from .db import db
 from .db_retry import wait_for_db
 
@@ -28,13 +29,22 @@ def create_app() -> Flask:
     db_name = environ["DB_NAME"]
     db_user = environ["DB_USER"]
     db_password = environ["DB_PASSWORD"]
-    driver = "ODBC+Driver+18+for+SQL+Server"
+    driver = "ODBC Driver 18 for SQL Server"
     encrypt = environ.get("DB_ENCRYPT", "yes")
     trust_server_cert = environ.get("DB_TRUST_SERVER_CERT", "no")
-    app.config["SQLALCHEMY_DATABASE_URI"] = (
-        f"mssql+pyodbc://{db_user}:{db_password}@{db_server}/{db_name}"
-        f"?driver={driver}&Encrypt={encrypt}&TrustServerCertificate={trust_server_cert}&Connection+Timeout=30"
-    )
+    app.config["SQLALCHEMY_DATABASE_URI"] = URL.create(
+        "mssql+pyodbc",
+        username=db_user,
+        password=db_password,
+        host=db_server,
+        database=db_name,
+        query={
+            "driver": driver,
+            "Encrypt": encrypt,
+            "TrustServerCertificate": trust_server_cert,
+            "Connection Timeout": "30",
+        },
+    ).render_as_string(hide_password=False)
     # Azure SQL silently drops idle connections; without pre_ping, the next
     # query on a stale pooled connection dies with a raw TCP/communication
     # link error instead of transparently reconnecting.
