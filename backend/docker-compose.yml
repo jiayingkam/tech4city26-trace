@@ -95,7 +95,9 @@ services:
 
   exposure_profiles:
     platform: linux/amd64
-    build: ./atomic/exposure_profiles
+    build:
+      context: .
+      dockerfile: atomic/exposure_profiles/Dockerfile
     ports:
       - "5005:5005"
     env_file: ../.env

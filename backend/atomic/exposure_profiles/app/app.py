@@ -1,29 +1,20 @@
-import re
 from os import environ
 from flask import Flask, jsonify, request
-from flask_cors import CORS
 from flask_swagger import swagger
 from flask_swagger_ui import get_swaggerui_blueprint
 from dotenv import load_dotenv
 from sqlalchemy.engine import URL
 from .db import db
 from .db_retry import wait_for_db
+from trace_auth import init_auth
+from trace_cors import configure_cors
 
 load_dotenv()
-
-# This service's Docker build context (./atomic/exposure_profiles, see
-# docker-compose.yml) doesn't reach backend/shared, so it can't import the
-# trace_cors helper the other services use — duplicated here instead. Any
-# localhost port is allowed alongside FRONTEND_ORIGIN because that header is
-# browser-set and can't be spoofed by a real remote caller, so it's safe in
-# every environment.
-LOCALHOST_ORIGIN = re.compile(r"^http://localhost:\d+$")
 
 
 def create_app() -> Flask:
     app = Flask(__name__)
-    configured_origins = environ.get("FRONTEND_ORIGIN", "http://localhost:3000").split(",")
-    CORS(app, origins=[*configured_origins, LOCALHOST_ORIGIN])
+    configure_cors(app)
 
     db_server = environ["DB_SERVER"]
     db_name = environ["DB_NAME"]
@@ -53,6 +44,7 @@ def create_app() -> Flask:
         "pool_recycle": 280,
     }
     db.init_app(app)
+    init_auth(app)
 
     from .routes import bp
     app.register_blueprint(bp)
@@ -82,6 +74,9 @@ def create_app() -> Flask:
         swag = swagger(app)
         swag["info"]["version"] = "1.0"
         swag["info"]["title"] = "Exposure Profiles API"
+        swag["securityDefinitions"] = {
+            "BearerAuth": {"type": "apiKey", "name": "Authorization", "in": "header"}
+        }
         return jsonify(swag)
 
     swaggerui_bp = get_swaggerui_blueprint(

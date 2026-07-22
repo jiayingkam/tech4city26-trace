@@ -6,6 +6,7 @@ import requests
 from flask import Blueprint, request, jsonify, send_file
 from PIL import Image, ImageFilter
 
+from flask_jwt_extended import get_jwt_identity
 from trace_auth import forwarded_auth_headers
 import trace_storage
 from .text_redaction import redact_caption
@@ -16,6 +17,27 @@ CONTENT_DRAFTS_SERVICE_URL = os.environ.get("CONTENT_DRAFTS_SERVICE_URL", "http:
 DETECTIONS_SERVICE_URL = os.environ.get("DETECTIONS_SERVICE_URL", "http://DETECTIONS:5003")
 EDITS_SERVICE_URL = os.environ.get("EDITS_SERVICE_URL", "http://EDITS:5004")
 UPLOAD_POST_SERVICE_URL = os.environ.get("UPLOAD_POST_SERVICE_URL", "http://UPLOAD_POST:5014")
+UPDATE_EXPOSURE_PROFILE_SERVICE_URL = os.environ.get(
+    "UPDATE_EXPOSURE_PROFILE_SERVICE_URL", "http://update_exposure_profile:5013"
+)
+
+
+def _invalidate_exposure_profile():
+    """Best-effort: drop the caller's cached exposure profile after their post
+    history changed, so their next Privacy Risk view rebuilds it fresh. Never
+    blocks or fails the remediation action — a stale profile self-heals on the
+    next read-miss anyway."""
+    owner_id = get_jwt_identity()
+    if not owner_id:
+        return
+    try:
+        requests.delete(
+            f"{UPDATE_EXPOSURE_PROFILE_SERVICE_URL}/users/{owner_id}/profile",
+            headers=forwarded_auth_headers(request),
+            timeout=3,
+        )
+    except requests.RequestException:
+        pass
 
 
 def _set_detection_resolution(detection_id, resolution, auth_headers):
@@ -423,6 +445,10 @@ def confirm_remediation(draft_id):
     if error:
         return error
 
+    # Post just became published (resolutions set) — its cumulative privacy
+    # footprint changed, so drop the cached profile.
+    _invalidate_exposure_profile()
+
     return jsonify({
         "draft_id": draft_id,
         "confirmed": confirmed,
@@ -465,6 +491,9 @@ def cancel_remediation(draft_id):
     for d in resp.json():
         if d.get("resolution") is None:
             _set_detection_resolution(d["detection_id"], "rejected", auth_headers)
+    # Cancelled post now counts as a "privacy save" instead of a publish —
+    # the footprint changed, so drop the cached profile.
+    _invalidate_exposure_profile()
     return jsonify({"draft_id": draft_id, "status": "rejected"}), 200
 
 
@@ -597,6 +626,10 @@ def revert_edit(edit_id):
         _, error = _regenerate_output(edit["draft_id"])
         if error:
             return error
+
+    # Un-resolving a detection can push a post back to pending, changing what
+    # counts toward the footprint — drop the cached profile.
+    _invalidate_exposure_profile()
 
     return jsonify(patch_resp.json()), 200
 

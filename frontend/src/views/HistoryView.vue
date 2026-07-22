@@ -87,7 +87,9 @@ function closeSubScreen() {
   activeRemediation.value = null
   activeDetections.value = []
   activeTeachableMoment.value = null
-  load() // the post's status likely just changed (edited/released/deleted)
+  // Post status changed — privacy score may have shifted.
+  window.__mosaicCache = null
+  load()
 }
 
 const STATUS_LABELS = {
@@ -122,11 +124,15 @@ const selectedIds = ref(new Set())
 const allSelected = computed(() => posts.value.length > 0 && selectedIds.value.size === posts.value.length)
 
 let longPressTimer = null
+let longPressFired = false
 const LONG_PRESS_MS = 500
 
 function startLongPress(draftId) {
   clearLongPress()
+  longPressFired = false
   longPressTimer = setTimeout(() => {
+    longPressFired = true
+    swipeOpenId.value = null
     selectionMode.value = true
     toggleSelected(draftId)
   }, LONG_PRESS_MS)
@@ -134,6 +140,79 @@ function startLongPress(draftId) {
 function clearLongPress() {
   if (longPressTimer) clearTimeout(longPressTimer)
   longPressTimer = null
+}
+
+// ── Swipe-to-delete ──────────────────────────────────────────────────────
+// Each card can be dragged left to reveal a Delete action, iOS-list style.
+// The same pointer stream also drives tap (open the post) and long-press
+// (enter multi-select), so all three gestures are resolved here rather than
+// via a separate @click.
+const swipeOpenId = ref(null) // draft_id of the card currently swiped open
+const drag = ref({ id: null, startX: 0, startY: 0, dx: 0, mode: null })
+const SWIPE_WIDTH = 76 // px the card slides to expose Delete
+const SWIPE_TRIGGER = 45 // px past which release snaps open
+const TAP_SLOP = 8 // px of movement still treated as a tap
+
+function onCardPointerDown(post, e) {
+  drag.value = { id: post.draft_id, startX: e.clientX, startY: e.clientY, dx: 0, mode: null }
+  startLongPress(post.draft_id)
+  try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* older browsers */ }
+}
+function onCardPointerMove(e) {
+  const d = drag.value
+  if (!d.id) return
+  const dx = e.clientX - d.startX
+  const dy = e.clientY - d.startY
+  if (d.mode === null) {
+    // Decide gesture: horizontal past the slop = swipe; vertical = let it scroll.
+    if (!selectionMode.value && Math.abs(dx) > TAP_SLOP && Math.abs(dx) > Math.abs(dy)) {
+      d.mode = 'swipe'
+      clearLongPress()
+    } else if (Math.abs(dy) > TAP_SLOP) {
+      d.mode = 'scroll'
+      clearLongPress()
+    }
+  }
+  if (d.mode === 'swipe') {
+    const base = swipeOpenId.value === d.id ? -SWIPE_WIDTH : 0
+    d.dx = Math.min(0, Math.max(-SWIPE_WIDTH, base + dx))
+  }
+}
+function onCardPointerUp(post) {
+  const d = drag.value
+  clearLongPress()
+  if (longPressFired) {
+    // long-press already entered selection + toggled this card
+  } else if (d.mode === 'swipe') {
+    swipeOpenId.value = d.dx <= -SWIPE_TRIGGER ? post.draft_id : null
+  } else if (d.mode === null) {
+    // A tap. If a card is swiped open, first tap just closes it.
+    if (swipeOpenId.value) {
+      swipeOpenId.value = null
+    } else {
+      handleCardTap(post)
+    }
+  }
+  drag.value = { id: null, startX: 0, startY: 0, dx: 0, mode: null }
+}
+function onCardPointerCancel() {
+  clearLongPress()
+  drag.value = { id: null, startX: 0, startY: 0, dx: 0, mode: null }
+}
+
+function cardStyle(draftId) {
+  const d = drag.value
+  const dragging = d.id === draftId && d.mode === 'swipe'
+  const x = dragging ? d.dx : (swipeOpenId.value === draftId ? -SWIPE_WIDTH : 0)
+  return {
+    transform: `translateX(${x}px)`,
+    transition: dragging ? 'none' : 'transform 0.2s ease',
+  }
+}
+
+function enterSelection() {
+  swipeOpenId.value = null
+  selectionMode.value = true
 }
 function handleCardTap(post) {
   // Once in selection mode, a plain tap toggles selection instead of
@@ -221,6 +300,20 @@ onBeforeUnmount(() => {
   clearInterval(clock)
 })
 
+async function deleteSingle(draftId) {
+  swipeOpenId.value = null
+  deleting.value = true
+  error.value = ''
+  try {
+    await deleteHistoryItems({ draftIds: [draftId] })
+    await load()
+  } catch (err) {
+    error.value = err.message || 'Could not delete this post.'
+  } finally {
+    deleting.value = false
+  }
+}
+
 async function deleteSelected() {
   if (selectedIds.value.size === 0) return
   deleting.value = true
@@ -290,6 +383,13 @@ function cooldownRemaining(post) {
   <div v-else class="app-screen">
     <div class="app-header">
       <HamburgerMenu @history="$emit('history')" @settings="$emit('settings')" @mosaic="$emit('mosaic')" @logout="$emit('logout')" />
+      <button
+        v-if="posts.length"
+        class="header-select-btn"
+        @click="selectionMode ? cancelSelection() : enterSelection()"
+      >
+        {{ selectionMode ? 'Done' : 'Select' }}
+      </button>
       <h1 class="app-title">History</h1>
       <p class="app-subtitle">Review past scans and cleanups.</p>
     </div>
@@ -345,35 +445,50 @@ function cooldownRemaining(post) {
       <div
         v-for="post in posts"
         :key="post.draft_id"
-        class="post-card mb-3"
-        :class="{ selected: selectedIds.has(post.draft_id), tappable: !selectionMode }"
-        @pointerdown="startLongPress(post.draft_id)"
-        @pointerup="clearLongPress"
-        @pointerleave="clearLongPress"
-        @click="handleCardTap(post)"
+        class="post-swipe-wrap mb-3"
       >
-        <div class="d-flex justify-content-between align-items-start">
-          <div>
-            <div class="soft-note">{{ formatDateTime(post.captured_at) }}</div>
-            <div class="fw-semibold" :class="`status-${post.status}`">
-              {{ STATUS_LABELS[post.status] }}
-              <span v-if="post.status === 'quarantined'" class="text-muted small fw-normal">
-                {{ cooldownRemaining(post) }}
-              </span>
+        <!-- Revealed behind the card when it's swiped left -->
+        <button
+          v-if="!selectionMode"
+          class="swipe-delete"
+          :disabled="deleting"
+          aria-label="Delete post"
+          @click.stop="deleteSingle(post.draft_id)"
+        >
+          Delete
+        </button>
+        <div
+          class="post-card"
+          :class="{ selected: selectedIds.has(post.draft_id), tappable: !selectionMode }"
+          :style="cardStyle(post.draft_id)"
+          @pointerdown="onCardPointerDown(post, $event)"
+          @pointermove="onCardPointerMove($event)"
+          @pointerup="onCardPointerUp(post)"
+          @pointercancel="onCardPointerCancel()"
+        >
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <div class="soft-note">{{ formatDateTime(post.captured_at) }}</div>
+              <div class="fw-semibold" :class="`status-${post.status}`">
+                {{ STATUS_LABELS[post.status] }}
+                <span v-if="post.status === 'quarantined'" class="text-muted small fw-normal">
+                  {{ cooldownRemaining(post) }}
+                </span>
+              </div>
+              <div class="small text-muted mt-1">{{ post.summary }}</div>
             </div>
-            <div class="small text-muted mt-1">{{ post.summary }}</div>
+            <img v-if="thumbnails[post.draft_id]" :src="thumbnails[post.draft_id]" class="thumb" alt="" />
+            <div v-else class="thumb thumb-placeholder">🖼</div>
           </div>
-          <img v-if="thumbnails[post.draft_id]" :src="thumbnails[post.draft_id]" class="thumb" alt="" />
-          <div v-else class="thumb thumb-placeholder">🖼</div>
-        </div>
-        <div v-if="selectionMode" class="form-check position-absolute select-checkbox">
-          <input
-            class="form-check-input"
-            type="checkbox"
-            :checked="selectedIds.has(post.draft_id)"
-            @click.stop
-            @change="toggleSelected(post.draft_id)"
-          />
+          <div v-if="selectionMode" class="form-check position-absolute select-checkbox">
+            <input
+              class="form-check-input"
+              type="checkbox"
+              :checked="selectedIds.has(post.draft_id)"
+              @click.stop
+              @change="toggleSelected(post.draft_id)"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -403,14 +518,45 @@ function cooldownRemaining(post) {
   border-bottom: 1px solid var(--trace-line);
   background: #fff;
 }
+.header-select-btn {
+  position: absolute;
+  top: 16px;
+  right: 14px;
+  z-index: 2;
+  background: transparent;
+  border: none;
+  padding: 4px 6px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--trace-primary, #2f6fed);
+}
+.post-swipe-wrap {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+}
+.swipe-delete {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 76px;
+  border: none;
+  background: var(--trace-danger, #d94841);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
 .post-card {
   position: relative;
+  z-index: 1;
   border: 1px solid var(--trace-line);
   border-radius: 14px;
   padding: 14px;
   background: #fff;
   user-select: none;
-  touch-action: manipulation;
+  /* pan-y lets the list scroll vertically while we own horizontal swipes */
+  touch-action: pan-y;
 }
 .post-card.selected {
   border-color: var(--trace-primary);

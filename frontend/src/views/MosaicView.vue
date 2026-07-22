@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getMe, getMosaicTrajectory } from '../api'
+import { getMe, getExposureProfile } from '../api'
 import HamburgerMenu from '../components/HamburgerMenu.vue'
 
 // Window-level cache — survives screen navigation AND Vite HMR module re-evaluation.
@@ -16,6 +16,12 @@ const trajectory = ref(_getCache()?.trajectory || [])
 const finalK = ref(_getCache()?.final_k || null)
 const postCount = ref(_getCache()?.post_count || 0)
 const typeSummary = ref(_getCache()?.type_summary || {})
+const saves = ref(_getCache()?.saves || [])
+const savedBits = ref(_getCache()?.saved_bits || 0)
+const behaviorFactor = ref(_getCache()?.behavior_factor ?? 1.0)
+const behaviorLabel = ref(_getCache()?.behavior_label || 'building')
+const strangerInferences = ref(_getCache()?.stranger?.inferences || [])
+const strangerConfidence = ref(_getCache()?.stranger?.overall_confidence || 0)
 const loading = ref(!_getCache())
 const error = ref(null)
 
@@ -56,6 +62,10 @@ function calcScore(k) {
 
 const score = computed(() => calcScore(finalK.value))
 
+// Behavior-adjusted score — penalises users who consistently rely on the app
+// to clean up risky posts without changing their posting habits over time.
+const adjustedScore = computed(() => Math.round(score.value * behaviorFactor.value))
+
 // How many points the last post cost — negative means privacy dropped.
 const scoreDelta = computed(() => {
   if (trajectory.value.length < 2) return null
@@ -64,24 +74,39 @@ const scoreDelta = computed(() => {
 })
 
 const scoreColor = computed(() => {
-  if (score.value >= 70) return '#198c68'
-  if (score.value >= 40) return '#f4b740'
+  if (adjustedScore.value >= 70) return '#198c68'
+  if (adjustedScore.value >= 40) return '#f4b740'
   return '#d94841'
 })
 
 const scoreLabel = computed(() => {
-  if (score.value >= 70) return 'Low risk'
-  if (score.value >= 40) return 'Medium risk'
+  if (adjustedScore.value >= 70) return 'Low risk'
+  if (adjustedScore.value >= 40) return 'Medium risk'
   return 'High risk'
 })
 
-const strokeOffset = computed(() => CIRCUMFERENCE * (1 - score.value / 100))
+const strokeOffset = computed(() => CIRCUMFERENCE * (1 - adjustedScore.value / 100))
+
+const behaviorLabelText = computed(() => ({
+  clean:     'Clean habits',
+  improving: 'Improving',
+  steady:    'Steady habits',
+  reliant:   'Relying on cleanup',
+  building:  'Not enough data yet',
+}[behaviorLabel.value] || behaviorLabel.value))
 
 function formatK(k) {
   if (!k) return ''
   if (k >= 1_000_000) return `~${(k / 1_000_000).toFixed(1)}M`
   if (k >= 1_000) return `~${Math.round(k / 1_000)}K`
   return `~${k}`
+}
+
+function formatOneIn(k) {
+  if (!k) return ''
+  if (k >= 1_000_000) return `1 in ${(k / 1_000_000).toFixed(1)}M`
+  if (k >= 1_000) return `1 in ${Math.round(k / 1_000)}K`
+  return `1 in ${k}`
 }
 
 function riskBadgeClass(level) {
@@ -95,6 +120,12 @@ function applyCache(data) {
   finalK.value = data.final_k
   postCount.value = data.post_count || 0
   typeSummary.value = data.type_summary || {}
+  saves.value = data.saves || []
+  savedBits.value = data.saved_bits || 0
+  behaviorFactor.value = data.behavior_factor ?? 1.0
+  behaviorLabel.value = data.behavior_label || 'building'
+  strangerInferences.value = data.stranger?.inferences || []
+  strangerConfidence.value = data.stranger?.overall_confidence || 0
 }
 
 async function load(force = false) {
@@ -103,7 +134,9 @@ async function load(force = false) {
   error.value = null
   try {
     const user = await getMe()
-    const data = await getMosaicTrajectory(user.user_id)
+    // One call to the materialized profile — trajectory, score, and stranger-view
+    // all in a single stored blob (recomputed server-side only on a cache miss).
+    const data = (await getExposureProfile(user.user_id)) || {}
     _setCache(data)
     applyCache(data)
   } catch (err) {
@@ -163,17 +196,47 @@ onMounted(load)
               />
             </svg>
             <div class="score-overlay">
-              <span class="score-num" :style="{ color: scoreColor }">{{ score }}</span>
+              <span class="score-num" :style="{ color: scoreColor }">{{ adjustedScore }}</span>
               <span class="score-denom">/ 100</span>
             </div>
           </div>
           <p class="fw-bold small mb-0">Privacy Score
             <span class="score-risk-label" :style="{ color: scoreColor }">· {{ scoreLabel }}</span>
           </p>
-          <p v-if="scoreDelta !== null" class="x-small mb-0" :class="scoreDelta < 0 ? 'text-danger' : 'text-success'">
+          <div class="d-flex align-items-center gap-2 flex-wrap justify-content-center mt-1">
+            <span class="behavior-badge" :class="`behavior--${behaviorLabel}`">{{ behaviorLabelText }}</span>
+            <span v-if="behaviorFactor < 1" class="x-small text-secondary">
+              Base: {{ score }} · Habit adjustment: {{ adjustedScore - score }} pts
+            </span>
+          </div>
+          <p v-if="scoreDelta !== null" class="x-small mb-0 mt-1" :class="scoreDelta < 0 ? 'text-danger' : 'text-success'">
             {{ scoreDelta > 0 ? '+' : '' }}{{ scoreDelta }} points from your last post
           </p>
-          <p class="x-small text-secondary mb-0">Based on {{ postCount }} published post{{ postCount === 1 ? '' : 's' }} · {{ formatK(finalK) }} people share your profile</p>
+          <p class="x-small text-secondary mb-0 mt-1">
+            <span class="one-in-label">{{ formatOneIn(finalK) }}</span>
+            people in Singapore could match you
+          </p>
+          <p class="x-small text-secondary mb-0">
+            Based on {{ postCount }} post{{ postCount === 1 ? '' : 's' }} ·
+            the fewer the people, the more identifiable you are
+          </p>
+        </div>
+
+        <!-- What a stranger learns -->
+        <div v-if="strangerInferences.length" class="stranger-card p-3 rounded-3">
+          <div class="d-flex align-items-center justify-content-between mb-1">
+            <p class="mb-0 small fw-bold stranger-title">🕵️ What a stranger could learn</p>
+            <span class="stranger-conf">{{ strangerConfidence }}% confident</span>
+          </div>
+          <p class="mb-2 x-small stranger-sub">By combining your posts, someone could infer:</p>
+          <div v-for="(inf, i) in strangerInferences" :key="i" class="stranger-row">
+            <span class="stranger-dot" :class="`conf--${inf.confidence}`"></span>
+            <div class="flex-grow-1">
+              <p class="mb-0 small">{{ inf.statement }}</p>
+              <p class="mb-0 stranger-cite">from {{ inf.based_on.join(' · ') }}</p>
+            </div>
+            <span class="stranger-conf-tag" :class="`conf--${inf.confidence}`">{{ inf.confidence }}</span>
+          </div>
         </div>
 
         <!-- Tips -->
@@ -192,6 +255,19 @@ onMounted(load)
           </div>
         </div>
 
+        <!-- Privacy saves -->
+        <div v-if="saves.length" class="saves-card p-3 rounded-3">
+          <p class="mb-1 small fw-semibold saves-title">Privacy saves</p>
+          <p class="mb-2 x-small text-secondary">
+            You held back {{ saves.length }} high-risk post{{ saves.length === 1 ? '' : 's' }} before sharing.
+            That protected roughly {{ formatK(Math.round(savedBits * 3.32)) }} people worth of anonymity.
+          </p>
+          <div v-for="s in saves" :key="s.draft_id" class="save-row x-small text-secondary mb-1">
+            <span class="save-dot">●</span>
+            {{ s.text_content || '(image only)' }}
+          </div>
+        </div>
+
         <!-- Post breakdown -->
         <div class="d-flex flex-column gap-2">
           <p class="small text-secondary mb-1 fw-semibold">Post breakdown</p>
@@ -203,11 +279,14 @@ onMounted(load)
             <span class="post-num text-secondary small">{{ i + 1 }}</span>
             <div class="flex-grow-1 min-w-0">
               <p class="mb-0 small text-truncate">{{ point.text_content || '(image only)' }}</p>
-              <p class="mb-0 x-small text-secondary">{{ formatK(point.k_after) }} people share your profile after this post</p>
+              <p class="mb-0 x-small text-secondary">{{ formatOneIn(point.k_after) }} people could match you after this post</p>
             </div>
-            <span :class="riskBadgeClass(point.risk_level)" style="font-size:0.7rem;white-space:nowrap">
-              {{ point.risk_level }}
-            </span>
+            <div class="d-flex flex-column align-items-end gap-1">
+              <span :class="riskBadgeClass(point.risk_level)" style="font-size:0.7rem;white-space:nowrap">
+                {{ point.risk_level }}
+              </span>
+              <span v-if="point.cleaned" class="cleaned-badge">cleaned</span>
+            </div>
           </div>
         </div>
 
@@ -279,4 +358,107 @@ onMounted(load)
 .x-small {
   font-size: 0.72rem;
 }
+.saves-card {
+  background: #f0faf5;
+  border: 1px solid #a8dfc3;
+}
+.saves-title {
+  color: #198c68;
+}
+.save-row {
+  display: flex;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.save-dot {
+  color: #198c68;
+  font-size: 0.5rem;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.cleaned-badge {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #198c68;
+  background: #e6f7ef;
+  border: 1px solid #a8dfc3;
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.behavior-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.behavior--clean     { background: #e6f7ef; color: #198c68; border: 1px solid #a8dfc3; }
+.behavior--improving { background: #e6f7ef; color: #198c68; border: 1px solid #a8dfc3; }
+.behavior--steady    { background: #fff5df; color: #936509; border: 1px solid #f3d48b; }
+.behavior--reliant   { background: #fff0ee; color: #d94841; border: 1px solid #f5b8b5; }
+.behavior--building  { background: #f1f3f5; color: #6c757d; border: 1px solid #dee2e6; }
+.one-in-label {
+  font-weight: 700;
+  color: var(--trace-text, #1a1a2e);
+}
+.stranger-card {
+  background: #1a1d2b;
+  color: #f2f4f8;
+  border: 1px solid #2c3145;
+}
+.stranger-title {
+  color: #fff;
+}
+.stranger-sub {
+  color: #aeb4c6;
+}
+.stranger-conf {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #ffd479;
+  background: rgba(255, 212, 121, 0.12);
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.stranger-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 0;
+  border-top: 1px solid #2c3145;
+}
+.stranger-row .small {
+  color: #f2f4f8;
+}
+.stranger-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+.stranger-cite {
+  font-size: 0.64rem;
+  color: #8b91a6;
+  margin-top: 1px;
+}
+.stranger-conf-tag {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+  align-self: center;
+}
+.conf--high  { background: #d94841; color: #fff; }
+.conf--medium { background: #f4b740; color: #3a2c00; }
+.conf--low   { background: #4a5169; color: #d3d8e6; }
+.stranger-dot.conf--high  { background: #ff6b63; }
+.stranger-dot.conf--medium { background: #f4b740; }
+.stranger-dot.conf--low   { background: #7a8199; }
 </style>
