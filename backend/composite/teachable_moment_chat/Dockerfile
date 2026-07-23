@@ -9,4 +9,4 @@ COPY shared/trace_auth trace_auth/
 COPY shared/trace_cors trace_cors/
 COPY composite/teachable_moment_chat/app/ app/
 
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5016} --workers 1 --threads 8 --timeout 0 app.app:'create_app()'"]
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5017} --workers 1 --threads 8 --timeout 0 app.app:'create_app()'"]

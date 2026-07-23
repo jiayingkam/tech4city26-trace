@@ -239,7 +239,7 @@ services:
       context: .
       dockerfile: composite/teachable_moment_chat/Dockerfile
     ports:
-      - "5016:5016"
+      - "5017:5017"
     env_file: ../.env
     depends_on:
       detections:
@@ -251,7 +251,7 @@ services:
       generate_teachable_moment:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5016/health')\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5017/health')\""]
       interval: 10s
       timeout: 5s
       retries: 5
