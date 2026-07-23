@@ -25,6 +25,7 @@ A microservices backend built with Flask, organised into **atomic** (CRUD) and *
 | 5014 | Upload Post               | composite |
 | 5015 | Manage History            | composite |
 | 5016 | Scan Video                | composite |
+| 5017 | Teachable Moment Chat     | composite |
 
 These ports are only for local Docker Compose. In production each service is deployed separately on Google Cloud Run, so the frontend is instead pointed at whatever URL each one gets there (see "Running the Frontend" below).
 
@@ -149,7 +150,7 @@ npm install
 npm run dev
 ```
 
-Opens at `http://localhost:3000`. The upload/scan/remediation flow calls `upload_post` (5014), `scan_draft` (5012), `detections` (5003), `remediate_content` (5011), `quarantine_high_risk` (5010), `generate_teachable_moment` (5009), and `manage_history` (5015) directly from the browser — CORS is already enabled on each. For a video draft, `scan_draft` proxies the actual video scan to `scan_video` (5016) itself; the frontend never calls `scan_video` directly, it just keeps polling `scan_draft`'s `/process` endpoint the same way it does for images.
+Opens at `http://localhost:3000`. The upload/scan/remediation flow calls `upload_post` (5014), `scan_draft` (5012), `detections` (5003), `remediate_content` (5011), `quarantine_high_risk` (5010), `generate_teachable_moment` (5009), `teachable_moment_chat` (5017), and `manage_history` (5015) directly from the browser — CORS is already enabled on each. For a video draft, `scan_draft` proxies the actual video scan to `scan_video` (5016) itself; the frontend never calls `scan_video` directly, it just keeps polling `scan_draft`'s `/process` endpoint the same way it does for images.
 
 ---
 

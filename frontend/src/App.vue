@@ -303,6 +303,7 @@ onUnmounted(stopQuickTeach)
         :remediation="activeRemediation"
         :photo-url="photoPreviewUrl"
         :detections="detections"
+        :teachable-moment="teachableMoment"
         @restart="restart"
       />
       <QuarantineView

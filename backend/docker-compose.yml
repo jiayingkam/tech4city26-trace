@@ -234,6 +234,29 @@ services:
       - "5013:5013"
     env_file: ../.env
 
+  teachable_moment_chat:
+    build:
+      context: .
+      dockerfile: composite/teachable_moment_chat/Dockerfile
+    ports:
+      - "5016:5016"
+    env_file: ../.env
+    depends_on:
+      detections:
+        condition: service_healthy
+      quarantine_items:
+        condition: service_healthy
+      update_exposure_profile:
+        condition: service_started
+      generate_teachable_moment:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5016/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
   upload_post:
     build:
       context: .

@@ -1,5 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
+import { sendTeachableMomentChat } from '../api'
+import TeachableChatPanel from '../components/TeachableChatPanel.vue'
 
 const props = defineProps({
   photoUrl: { type: String, default: null },
@@ -98,6 +100,33 @@ async function copySuggestedCaption() {
   copyState.value = 'copied'
   setTimeout(() => { copyState.value = 'idle' }, 2000)
 }
+
+const chatMessages = ref([])
+const chatInput = ref('')
+const chatLoading = ref(false)
+const chatError = ref(null)
+const chatExpanded = ref(false)
+
+async function sendChat(text) {
+  const message = (text ?? chatInput.value).trim()
+  if (!message || chatLoading.value) return
+
+  // History is everything *before* this new turn — pushed first so the
+  // slice below stays correct regardless of when the request resolves.
+  const history = chatMessages.value.slice()
+  chatMessages.value.push({ role: 'user', content: message })
+  chatInput.value = ''
+  chatError.value = null
+  chatLoading.value = true
+  try {
+    const { reply } = await sendTeachableMomentChat(props.teachableMoment.draft_id, message, history)
+    chatMessages.value.push({ role: 'assistant', content: reply })
+  } catch (err) {
+    chatError.value = "Couldn't get an answer — try again."
+  } finally {
+    chatLoading.value = false
+  }
+}
 </script>
 
 <template>
@@ -178,6 +207,24 @@ async function copySuggestedCaption() {
           <p class="fw-semibold mb-1">{{ teachableMoment.title }}</p>
           <p class="small mb-2">{{ teachableMoment.explanation }}</p>
           <p class="small mb-0"><strong>Safer move:</strong> {{ teachableMoment.safer_action }}</p>
+
+          <div class="chat-section mt-3">
+            <button
+              type="button"
+              class="chat-expand-btn"
+              aria-label="Expand chat"
+              @click="chatExpanded = true"
+            >⤢</button>
+            <TeachableChatPanel
+              v-model="chatInput"
+              :messages="chatMessages"
+              :loading="chatLoading"
+              :error="chatError"
+              :discussion-prompt="teachableMoment.discussion_prompt"
+              :show-sim-suggestion="!!teachableMoment.category"
+              @send="sendChat"
+            />
+          </div>
         </div>
       </template>
 
@@ -210,6 +257,23 @@ async function copySuggestedCaption() {
         <button v-if="hasFindings" class="btn btn-primary w-100" @click="$emit('continue')">Fix the risky parts</button>
         <button class="btn btn-outline-secondary w-100" @click="$emit('restart')">Back</button>
       </template>
+    </div>
+
+    <div v-if="chatExpanded && teachableMoment" class="chat-fullscreen">
+      <div class="chat-fullscreen-header">
+        <button type="button" class="chat-back-btn" @click="chatExpanded = false">← Back</button>
+        <p class="chat-fullscreen-title mb-0">Ask a question</p>
+      </div>
+      <TeachableChatPanel
+        v-model="chatInput"
+        fullscreen
+        :messages="chatMessages"
+        :loading="chatLoading"
+        :error="chatError"
+        :discussion-prompt="teachableMoment.discussion_prompt"
+        :show-sim-suggestion="!!teachableMoment.category"
+        @send="sendChat"
+      />
     </div>
   </div>
 </template>
@@ -286,5 +350,52 @@ async function copySuggestedCaption() {
 .impact-note {
   font-size: 0.75rem;
   color: #667085;
+}
+.chat-section {
+  position: relative;
+  border-top: 1px solid var(--trace-line);
+  padding-top: 10px;
+}
+.chat-expand-btn {
+  position: absolute;
+  top: -4px;
+  right: 0;
+  background: none;
+  border: none;
+  font-size: 1.05rem;
+  line-height: 1;
+  color: #667085;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+.chat-fullscreen {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+}
+.chat-fullscreen-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--trace-line);
+}
+.chat-back-btn {
+  background: none;
+  border: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--trace-coral);
+  padding: 4px 0;
+  cursor: pointer;
+}
+.chat-fullscreen-title {
+  font-weight: 700;
+  font-size: 0.95rem;
 }
 </style>

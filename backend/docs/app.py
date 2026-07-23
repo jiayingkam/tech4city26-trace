@@ -22,6 +22,7 @@ swaggerui_bp = get_swaggerui_blueprint(
             {"url": "http://localhost:5011/swagger", "name": "Remediate Content (composite)"},
             {"url": "http://localhost:5012/swagger", "name": "Scan Draft (composite)"},
             {"url": "http://localhost:5013/swagger", "name": "Update Exposure Profile (composite)"},
+            {"url": "http://localhost:5016/swagger", "name": "Teachable Moment Chat (composite)"},
         ],
     },
 )

@@ -6,6 +6,7 @@ const EDITS_URL = import.meta.env.VITE_EDITS_URL || 'http://localhost:5004'
 const REMEDIATE_CONTENT_URL = import.meta.env.VITE_REMEDIATE_CONTENT_URL || 'http://localhost:5011'
 const QUARANTINE_HIGH_RISK_URL = import.meta.env.VITE_QUARANTINE_HIGH_RISK_URL || 'http://localhost:5010'
 const GENERATE_TEACHABLE_MOMENT_URL = import.meta.env.VITE_GENERATE_TEACHABLE_MOMENT_URL || 'http://localhost:5009'
+const TEACHABLE_MOMENT_CHAT_URL = import.meta.env.VITE_TEACHABLE_MOMENT_CHAT_URL || 'http://localhost:5016'
 const USERS_URL = import.meta.env.VITE_USERS_URL || 'http://localhost:5001'
 const MANAGE_HISTORY_URL = import.meta.env.VITE_MANAGE_HISTORY_URL || 'http://localhost:5015'
 const UPDATE_EXPOSURE_PROFILE_URL = import.meta.env.VITE_UPDATE_EXPOSURE_PROFILE_URL || 'http://localhost:5013'
@@ -131,6 +132,15 @@ export async function getDetections(draftId, onRetry) {
 export async function getTeachableMoment(draftId, onRetry) {
   const res = await fetchWithRetry(`${GENERATE_TEACHABLE_MOMENT_URL}/drafts/${draftId}/teachable-moment`, {
     method: 'POST',
+  }, { onRetry })
+  return parseOrThrow(res)
+}
+
+export async function sendTeachableMomentChat(draftId, message, history, onRetry) {
+  const res = await fetchWithRetry(`${TEACHABLE_MOMENT_CHAT_URL}/drafts/${draftId}/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, history }),
   }, { onRetry })
   return parseOrThrow(res)
 }

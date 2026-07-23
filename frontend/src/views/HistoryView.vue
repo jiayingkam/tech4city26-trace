@@ -55,6 +55,11 @@ async function openPendingPost(post) {
     activeRemediation.value = remediation
     activeDetections.value = detections
     subScreen.value = 'remediate'
+    try {
+      activeTeachableMoment.value = await getTeachableMoment(post.draft_id)
+    } catch {
+      activeTeachableMoment.value = null
+    }
   } catch (err) {
     error.value = err.message || 'Could not resume this post.'
     activePost.value = null
@@ -369,6 +374,7 @@ function cooldownRemaining(post) {
     :remediation="activeRemediation"
     :photo-url="thumbnails[activePost.draft_id]"
     :detections="activeDetections"
+    :teachable-moment="activeTeachableMoment"
     @restart="closeSubScreen"
   />
   <PostDetailView
