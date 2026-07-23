@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onBeforeUnmount } from 'vue'
+import { ref, computed, onBeforeUnmount } from 'vue'
 
 const emit = defineEmits(['share'])
 
@@ -8,6 +8,11 @@ const photoPreviewUrl = ref(null)
 const caption = ref('')
 const error = ref('')
 const fileInput = ref(null)
+
+// Video scanning runs as a slower async job on the backend (Cloud Video
+// Intelligence, not the instant image path), so the file's own type is what
+// decides which content_type gets sent — there's no separate "video" picker.
+const isVideo = computed(() => photoFile.value?.type?.startsWith('video/'))
 
 function pickPhoto() {
   fileInput.value?.click()
@@ -24,10 +29,14 @@ function onFileChange(e) {
 
 function share() {
   if (!photoFile.value) {
-    error.value = 'Add a photo before sharing.'
+    error.value = 'Add a photo or video before sharing.'
     return
   }
-  emit('share', { photoFile: photoFile.value, caption: caption.value })
+  emit('share', {
+    photoFile: photoFile.value,
+    caption: caption.value,
+    contentType: isVideo.value ? 'video' : 'image',
+  })
 }
 
 onBeforeUnmount(() => {
@@ -39,23 +48,24 @@ onBeforeUnmount(() => {
   <div class="app-screen">
     <div class="app-header">
       <h1 class="app-title">New post</h1>
-      <p class="app-subtitle">Add a photo and Trace will check it first.</p>
+      <p class="app-subtitle">Add a photo or video and Trace will check it first.</p>
     </div>
 
     <div class="app-content">
       <input
         ref="fileInput"
         type="file"
-        accept="image/*"
+        accept="image/*,video/*"
         class="d-none"
         @change="onFileChange"
       />
 
       <div class="photo-picker mb-3" @click="pickPhoto">
-        <img v-if="photoPreviewUrl" :src="photoPreviewUrl" class="photo-preview" alt="Selected photo" />
+        <video v-if="photoPreviewUrl && isVideo" :src="photoPreviewUrl" class="photo-preview" controls @click.stop />
+        <img v-else-if="photoPreviewUrl" :src="photoPreviewUrl" class="photo-preview" alt="Selected photo" />
         <div v-else class="photo-placeholder text-muted">
           <div class="camera-dot">+</div>
-          <p class="fw-bold mb-1">Add a photo</p>
+          <p class="fw-bold mb-1">Add a photo or video</p>
           <p class="small mb-0">Trace can spot faces, places, text, and hidden data.</p>
         </div>
       </div>

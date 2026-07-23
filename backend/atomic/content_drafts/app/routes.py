@@ -6,6 +6,7 @@ from .models import ContentDrafts
 bp = Blueprint("content_drafts", __name__)
 
 VALID_CONTENT_TYPES = ("text", "image", "video")
+VALID_SCAN_STATUSES = ("running", "done", "failed")
 
 
 def _json_body():
@@ -170,8 +171,8 @@ def list_drafts_for_owner(owner_id):
 
 @bp.route("/drafts/<draft_id>", methods=["PATCH"])
 def update_draft(draft_id):
-    """Update a draft's storage path and/or text content.
-    Only storage_path and text_content are mutable — everything else about a draft is fixed at creation.
+    """Update a draft's storage path, text content, and/or video scan progress.
+    Only storage_path, text_content, scan_status, and scan_operation are mutable — everything else about a draft is fixed at creation. scan_status/scan_operation are written by scan_video as it moves a video draft's async scan through running -> done/failed; other callers should treat them as read-only.
     ---
     tags:
       - Content Drafts
@@ -194,13 +195,20 @@ def update_draft(draft_id):
               type: string
             text_content:
               type: string
+            scan_status:
+              type: string
+              enum: [running, done, failed]
+              description: Set to null to clear back to not-yet-started.
+            scan_operation:
+              type: string
+              description: Set to null to clear once the scan finishes.
     responses:
       200:
         description: The updated draft.
         schema:
           $ref: "#/definitions/ContentDraft"
       400:
-        description: Request body is not a JSON object.
+        description: Request body is not a JSON object, or scan_status is present and invalid.
       403:
         description: The draft belongs to a different user.
       404:
@@ -218,6 +226,14 @@ def update_draft(draft_id):
         draft.storage_path = data["storage_path"]
     if "text_content" in data:
         draft.text_content = data["text_content"]
+    if "scan_status" in data:
+        scan_status = data["scan_status"]
+        # null clears it back to not-yet-started, e.g. allowing a "failed" scan to be retried
+        if scan_status is not None and scan_status not in VALID_SCAN_STATUSES:
+            return jsonify({"error": "invalid scan_status"}), 400
+        draft.scan_status = scan_status
+    if "scan_operation" in data:
+        draft.scan_operation = data["scan_operation"]
     db.session.commit()
     return jsonify(draft.to_dict()), 200
 

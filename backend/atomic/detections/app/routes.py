@@ -10,6 +10,17 @@ VALID_SOURCE_TYPES = ("text", "image", "video")
 VALID_RESOLUTIONS = ("accepted", "rejected")
 
 
+def _invalid_time_range(time_range):
+    if time_range is None:
+        return False
+    if not isinstance(time_range, dict):
+        return True
+    start, end = time_range.get("start"), time_range.get("end")
+    if type(start) not in (int, float) or type(end) not in (int, float):
+        return True
+    return start < 0 or end < start
+
+
 def _json_body():
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
@@ -74,6 +85,9 @@ def create_detection():
             bounding_region:
               type: object
               description: '{"x":120,"y":340,"w":80,"h":30}, null for text/metadata detections.'
+            time_range:
+              type: object
+              description: '{"start":3.2,"end":7.8} seconds, video findings only. null otherwise.'
     responses:
       201:
         description: Detection created.
@@ -105,11 +119,13 @@ def create_detection():
               type: string
             bounding_region:
               type: object
+            time_range:
+              type: object
             created_at:
               type: string
               format: date-time
       400:
-        description: Request body is not a JSON object, a required field is missing, category/source_type is invalid, or exposure_score is not an integer from 1 to 5.
+        description: Request body is not a JSON object, a required field is missing, category/source_type is invalid, exposure_score is not an integer from 1 to 5, or time_range is present but malformed.
     """
     data, error = _json_body()
     if error:
@@ -123,6 +139,8 @@ def create_detection():
         return jsonify({"error": "invalid source_type"}), 400
     if type(data["exposure_score"]) is not int or data["exposure_score"] not in range(1, 6):
         return jsonify({"error": "exposure_score must be an integer from 1 to 5"}), 400
+    if _invalid_time_range(data.get("time_range")):
+        return jsonify({"error": "time_range must be {start, end} with 0 <= start <= end"}), 400
     detection = Detection(
         draft_id=data["draft_id"],
         # Stamped from the caller's own token, same as content_drafts' owner_id
@@ -135,6 +153,7 @@ def create_detection():
         model_version=data.get("model_version"),
         detail=data.get("detail"),
         bounding_region=data.get("bounding_region"),  # null for text/metadata
+        time_range=data.get("time_range"),            # video findings only
     )
     db.session.add(detection)
     db.session.commit()

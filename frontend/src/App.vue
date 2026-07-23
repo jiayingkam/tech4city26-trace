@@ -20,6 +20,7 @@ const step = ref(getToken() ? 1 : 0)
 const photoPreviewUrl = ref(null)
 const detections = ref([])
 const draftId = ref(null)
+const contentType = ref('image')
 const scanOutcome = ref(null)
 const teachableMoment = ref(null)
 const mosaicRisk = ref(null)
@@ -71,8 +72,9 @@ async function handleShare(payload) {
   photoPreviewUrl.value = URL.createObjectURL(payload.photoFile)
 
   try {
+    contentType.value = payload.contentType
     const draft = await uploadPost({
-      contentType: 'image',
+      contentType: payload.contentType,
       sourceApp: 'trace-web',
       caption: payload.caption,
       photoFile: payload.photoFile,
@@ -80,6 +82,15 @@ async function handleShare(payload) {
     draftId.value = draft.draft_id
 
     scanOutcome.value = await processDraft(draft.draft_id, onRetry)
+    // Video is scanned by a separate async job (Cloud Video Intelligence)
+    // that can take much longer than one request — scan_draft reports that
+    // with a "scanning" outcome instead of blocking, so this just keeps
+    // asking until it's actually done. Images/text never return "scanning",
+    // so this loop is a no-op for them.
+    while (scanOutcome.value.outcome === 'scanning') {
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+      scanOutcome.value = await processDraft(draft.draft_id, onRetry)
+    }
     const [detections_, me_] = await Promise.all([
       getDetections(draft.draft_id, onRetry),
       getMe(),
@@ -123,6 +134,7 @@ function restart() {
   photoPreviewUrl.value = null
   detections.value = []
   draftId.value = null
+  contentType.value = 'image'
   scanOutcome.value = null
   teachableMoment.value = null
   mosaicRisk.value = null
@@ -265,6 +277,7 @@ onUnmounted(stopQuickTeach)
           <span class="visually-hidden">Scanning…</span>
         </div>
         <p class="fw-bold mb-1">Scanning your post<span class="scan-dot">.</span><span class="scan-dot">.</span><span class="scan-dot">.</span></p>
+        <p v-if="contentType === 'video'" class="small text-muted mt-1 mb-0">Videos take a little longer to check.</p>
         <div v-if="quickTeachTip" class="mt-3 text-center">
           <p class="small mb-0 bold-note">{{ quickTeachTip }}</p>
         </div>
@@ -274,7 +287,9 @@ onUnmounted(stopQuickTeach)
       <ResultsView
         v-else-if="step === 3"
         :photo-url="photoPreviewUrl"
+        :content-type="contentType"
         :detections="detections"
+        :remediation="scanOutcome?.remediation"
         :teachable-moment="teachableMoment"
         :mosaic-risk="mosaicRisk"
         @restart="restart"

@@ -17,6 +17,7 @@ DETECTIONS_SERVICE_URL = os.environ.get("DETECTIONS_SERVICE_URL", "http://DETECT
 QUARANTINE_HIGH_RISK_SERVICE_URL = os.environ.get("QUARANTINE_HIGH_RISK_SERVICE_URL", "http://QUARANTINE_HIGH_RISK:5010")
 REMEDIATE_CONTENT_SERVICE_URL = os.environ.get("REMEDIATE_CONTENT_SERVICE_URL", "http://REMEDIATE_CONTENT:5011")
 UPLOAD_POST_SERVICE_URL = os.environ.get("UPLOAD_POST_SERVICE_URL", "http://UPLOAD_POST:5014")
+SCAN_VIDEO_SERVICE_URL = os.environ.get("SCAN_VIDEO_SERVICE_URL", "http://SCAN_VIDEO:5016")
 
 # Serializes the "scan if nothing's there yet" check per draft_id — mirrors
 # remediate_content's _draft_propose_lock, which guards the analogous race
@@ -66,10 +67,6 @@ def run_scan(draft_id):
     draft = draft_resp.json()
 
     content_type = draft["content_type"]
-    if content_type == "video":
-        # video scanning isn't built yet — Phase 1 covers text + image only
-        return None, (jsonify({"error": "video scanning not yet supported"}), 501)
-
     findings = []
     if content_type == "image":
         storage_path = draft.get("storage_path")
@@ -81,6 +78,20 @@ def run_scan(draft_id):
                 findings += scan_image(local_path)
             finally:
                 os.remove(local_path)
+    elif content_type == "video":
+        # The video file itself (faces, on-screen text) is scanned by the
+        # dedicated scan_video service, not here — Video Intelligence runs
+        # as an async job that can take minutes on a real clip, far longer
+        # than this request should block for, and scan_video writes its own
+        # findings straight to the detections service once done. This call
+        # just makes sure that job exists (or nudges it one step forward if
+        # it's already running); process_draft is what actually waits for it
+        # to finish before deciding how to route the draft.
+        video_resp = requests.post(
+            f"{SCAN_VIDEO_SERVICE_URL}/drafts/{draft_id}/scan", headers=auth_headers
+        )
+        if video_resp.status_code not in (200, 201, 202):
+            return None, (jsonify({"error": "failed to start video scan"}), 502)
 
     # A caption can accompany either a text-only post or an image/video post —
     # scan it whenever it's present, not just when content_type is "text".
@@ -107,6 +118,10 @@ def scan_draft_endpoint(draft_id):
     endpoint may take several seconds to respond. Always re-scans, even if
     detections already exist for this draft; POST /drafts/{draft_id}/process
     is the endpoint that scans only if nothing's there yet.
+    For a video draft, this only scans its caption synchronously and starts
+    (or nudges forward) the video file's own scan in scan_video, which runs
+    as a separate async job — poll POST /drafts/{draft_id}/process to learn
+    when that job finishes and see its findings alongside the caption's.
     ---
     tags:
       - Scan Draft
@@ -171,12 +186,13 @@ def scan_draft_endpoint(draft_id):
                   created_at:
                     type: string
                     format: date-time
+                  time_range:
+                    type: object
+                    description: '{"start":3.2,"end":7.8} seconds. Video findings only — null otherwise.'
       404:
         description: No draft with that id exists.
-      501:
-        description: The draft's content_type is "video" — video scanning is not yet supported.
       502:
-        description: Failed to fetch the draft from content_drafts, or failed to record a detection with the detections service.
+        description: Failed to fetch the draft from content_drafts, failed to start/advance the video scan (content_type "video"), or failed to record a detection with the detections service.
     """
     created, error = run_scan(draft_id)
     if error:
@@ -195,6 +211,11 @@ def process_draft(draft_id):
     at exposure_score >= 4 holds the whole draft for human review
     (quarantine); otherwise every detection is routed to automatic
     remediation.
+    For a video draft, the video file itself is scanned asynchronously by
+    scan_video and can take much longer than one request — this endpoint
+    nudges that job forward on every call but returns a "scanning" outcome
+    (202) instead of routing until it actually finishes. Callers should poll
+    this same endpoint until they get a 200/201 outcome instead.
     ---
     tags:
       - Scan Draft
@@ -235,12 +256,23 @@ def process_draft(draft_id):
             quarantine:
               type: object
               description: The created quarantine hold, as returned by the quarantine_high_risk service.
+      202:
+        description: The draft's content_type is "video" and its scan is still in progress.
+        schema:
+          type: object
+          properties:
+            draft_id:
+              type: string
+            outcome:
+              type: string
+              example: scanning
+            status:
+              type: string
+              enum: [running, failed]
       404:
         description: No draft with that id exists.
-      501:
-        description: The draft's content_type is "video" — video scanning is not yet supported.
       502:
-        description: A downstream call failed — fetching detections/draft, recording a detection, creating the quarantine hold, or applying remediation. See the response body's error/detail for which.
+        description: A downstream call failed — fetching detections/draft, starting/advancing the video scan, recording a detection, creating the quarantine hold, or applying remediation. See the response body's error/detail for which.
     """
     auth_headers = forwarded_auth_headers(request)
     # The check-then-scan below has to happen under a per-draft lock: two
@@ -259,6 +291,35 @@ def process_draft(draft_id):
             detections, error = run_scan(draft_id)
             if error:
                 return error
+
+    # Video's on-screen content is scanned by scan_video as an async job, so
+    # a video draft can have SOME detections already (e.g. from its caption)
+    # while the video file itself is still mid-scan. Routing has to wait for
+    # that job to actually finish — deciding "clear" or "remediate" from a
+    # partial detection set could wave a dangerous video through while its
+    # scan is still running.
+    draft_resp = requests.get(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}", headers=auth_headers)
+    if draft_resp.status_code == 404:
+        return jsonify({"error": "draft not found"}), 404
+    if draft_resp.status_code != 200:
+        return jsonify({"error": "failed to fetch draft"}), 502
+    draft = draft_resp.json()
+
+    if draft["content_type"] == "video" and draft.get("scan_status") != "done":
+        # Nudges the job forward (starts it if it hasn't, polls it one step
+        # if it has) so repeated client polling of this same endpoint makes
+        # progress, rather than just re-checking a status that would
+        # otherwise never change on its own.
+        video_resp = requests.post(
+            f"{SCAN_VIDEO_SERVICE_URL}/drafts/{draft_id}/scan", headers=auth_headers
+        )
+        if video_resp.status_code not in (200, 201, 202):
+            return jsonify({"error": "failed to advance video scan"}), 502
+        video_status = video_resp.json().get("status")
+        if video_status != "done":
+            return jsonify({"draft_id": draft_id, "outcome": "scanning", "status": video_status}), 202
+        # finished on this call — route using the now-complete detection set
+        detections = video_resp.json().get("detections", [])
 
     if not detections:
         return jsonify({

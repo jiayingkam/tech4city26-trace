@@ -217,6 +217,8 @@ services:
         condition: service_healthy
       remediate_content:
         condition: service_healthy
+      scan_video:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5012/health')\""]
       interval: 10s
@@ -277,6 +279,29 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5015/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  scan_video:
+    build:
+      context: .
+      dockerfile: composite/scan_video/Dockerfile
+    ports:
+      - "5016:5016"
+    env_file: ../.env
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/gcp/key.json
+    volumes:
+      - ../secret/project-8b1de40b-e726-4619-bb6-155c865a304c.json:/gcp/key.json:ro
+    depends_on:
+      content_drafts:
+        condition: service_healthy
+      detections:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5016/health')\""]
       interval: 10s
       timeout: 5s
       retries: 5

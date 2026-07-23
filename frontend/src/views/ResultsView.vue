@@ -3,7 +3,12 @@ import { ref, computed } from 'vue'
 
 const props = defineProps({
   photoUrl: { type: String, default: null },
+  contentType: { type: String, default: 'image' },
   detections: { type: Array, default: () => [] },
+  // scan_draft's process outcome's `remediation` field — for a video draft
+  // this is where a caption redaction suggestion (if any) lives, since video
+  // findings never reach step 4's blur editor (see the "Done" button below).
+  remediation: { type: Object, default: null },
   teachableMoment: { type: Object, default: null },
   mosaicRisk: { type: Object, default: null },
 })
@@ -58,6 +63,41 @@ const imageFindings = computed(() =>
 const metadataFindings = computed(() => props.detections.filter((d) => d.category === 'metadata'))
 const textFindings = computed(() => props.detections.filter((d) => d.source_type === 'text'))
 const hasFindings = computed(() => props.detections.length > 0)
+
+const isVideo = computed(() => props.contentType === 'video')
+
+// Sorted by when each thing appears, so the list reads top-to-bottom the
+// same way the clip plays — unlike image findings, a time_range only makes
+// a moment on a shared timeline meaningful once findings are put in order.
+const videoFindings = computed(() =>
+  [...props.detections]
+    .filter((d) => d.source_type === 'video' && d.time_range)
+    .sort((a, b) => a.time_range.start - b.time_range.start)
+)
+
+const videoEl = ref(null)
+
+function formatTime(seconds) {
+  const m = Math.floor(seconds / 60)
+  const s = Math.floor(seconds % 60)
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function seekTo(seconds) {
+  if (!videoEl.value) return
+  videoEl.value.currentTime = seconds
+  videoEl.value.play()
+}
+
+const captionSuggestion = computed(() => props.remediation?.text_redaction || null)
+const copyState = ref('idle') // 'idle' | 'copied'
+
+async function copySuggestedCaption() {
+  if (!captionSuggestion.value) return
+  await navigator.clipboard.writeText(captionSuggestion.value.suggested_caption)
+  copyState.value = 'copied'
+  setTimeout(() => { copyState.value = 'idle' }, 2000)
+}
 </script>
 
 <template>
@@ -68,7 +108,10 @@ const hasFindings = computed(() => props.detections.length > 0)
     </div>
 
     <div class="app-content">
-      <div v-if="photoUrl" class="photo-wrap mb-3">
+      <div v-if="photoUrl && isVideo" class="photo-wrap mb-3">
+        <video ref="videoEl" :src="photoUrl" class="w-100 d-block" controls></video>
+      </div>
+      <div v-else-if="photoUrl" class="photo-wrap mb-3">
         <img ref="imgEl" :src="photoUrl" class="w-100 d-block" alt="Your photo" @load="onImageLoad" />
         <div
           v-for="(d, i) in imageFindings"
@@ -101,6 +144,18 @@ const hasFindings = computed(() => props.detections.length > 0)
           </ul>
         </div>
 
+        <div v-if="videoFindings.length" class="finding-panel mb-3">
+          <p class="fw-bold small mb-2">In your video</p>
+          <ul class="list-unstyled small mb-0">
+            <li v-for="(d, i) in videoFindings" :key="i" class="mb-2 d-flex align-items-start gap-2">
+              <button type="button" class="btn btn-sm btn-outline-secondary timestamp-chip" @click="seekTo(d.time_range.start)">
+                {{ formatTime(d.time_range.start) }}
+              </button>
+              <span><strong>{{ d.category === 'face' ? 'Face' : (CATEGORY_LABELS[d.category] || d.category) }}:</strong> {{ d.detail }}</span>
+            </li>
+          </ul>
+        </div>
+
         <div v-if="textFindings.length" class="finding-panel mb-3">
           <p class="fw-bold small mb-2">In your caption</p>
           <ul class="list-unstyled small mb-0">
@@ -108,6 +163,14 @@ const hasFindings = computed(() => props.detections.length > 0)
               <strong>{{ d.category }}:</strong> {{ d.detail }}
             </li>
           </ul>
+        </div>
+
+        <div v-if="isVideo && captionSuggestion" class="finding-panel mb-3">
+          <p class="fw-bold small mb-2">Suggested caption</p>
+          <p class="small mb-2">{{ captionSuggestion.suggested_caption || '(empty)' }}</p>
+          <button type="button" class="btn btn-sm btn-outline-secondary" @click="copySuggestedCaption">
+            {{ copyState === 'copied' ? 'Copied!' : 'Copy suggested caption' }}
+          </button>
         </div>
 
         <div v-if="teachableMoment" class="coach-card mt-3">
@@ -137,8 +200,16 @@ const hasFindings = computed(() => props.detections.length > 0)
     </div>
 
     <div class="app-action-bar">
-      <button v-if="hasFindings" class="btn btn-primary w-100" @click="$emit('continue')">Fix the risky parts</button>
-      <button class="btn btn-outline-secondary w-100" @click="$emit('restart')">Back</button>
+      <!-- Video has no pixel/frame editor (report-only for now — see
+      remediate_content's video_detections handling): its findings are
+      already resolved by the time this screen shows, so there's nothing
+      for step 4's blur editor to do. Copying the caption suggestion above
+      is the only action left, so this is just an acknowledgement. -->
+      <button v-if="isVideo" class="btn btn-primary w-100" @click="$emit('restart')">Done</button>
+      <template v-else>
+        <button v-if="hasFindings" class="btn btn-primary w-100" @click="$emit('continue')">Fix the risky parts</button>
+        <button class="btn btn-outline-secondary w-100" @click="$emit('restart')">Back</button>
+      </template>
     </div>
   </div>
 </template>
@@ -177,6 +248,11 @@ const hasFindings = computed(() => props.detections.length > 0)
 .finding-panel.warn {
   border-color: #f3d48b;
   background: #fffaf0;
+}
+.timestamp-chip {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .mosaic-impact-card {
   padding: 11px 14px;

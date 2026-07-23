@@ -216,8 +216,13 @@ def remediate_content(draft_id):
                         type: string
                       detail:
                         type: string
+            video_findings_reviewed:
+              type: array
+              description: detection_ids of video-source findings (faces, on-screen text) resolved by this call. There's no pixel/frame remediation pipeline for video yet, so these are marked reviewed immediately instead of becoming a proposed edit.
+              items:
+                type: string
       400:
-        description: The draft has no unresolved detections, has image detections but no stored file, or none of its detections could be turned into a proposed edit or caption suggestion.
+        description: The draft has no unresolved detections, has image detections but no stored file, or none of its detections could be turned into a proposed edit, caption suggestion, or reviewed video finding.
       404:
         description: No draft with that id exists.
       502:
@@ -243,7 +248,13 @@ def remediate_content(draft_id):
     # instead of falling through to "no bounding_region -> metadata_strip",
     # which would create a bogus image edit for a detection with no image.
     text_detections = [d for d in detections if d.get("source_type") == "text"]
-    image_detections = [d for d in detections if d.get("source_type") != "text"]
+    image_detections = [d for d in detections if d.get("source_type") == "image"]
+    # Video findings (faces, on-screen text) are report-only for now — there's
+    # no pixel/frame remediation pipeline yet, so these can't become a "blur"
+    # edit the way image detections do (confirm would eventually try to
+    # Image.open() the video file and crash). Resolved directly below instead
+    # of routed through the edit-proposal flow.
+    video_detections = [d for d in detections if d.get("source_type") == "video"]
 
     # only fetch the draft if there's actually image or text work to do
     draft = None
@@ -340,7 +351,15 @@ def remediate_content(draft_id):
             ],
         }
 
-    if not proposed and not text_redaction:
+    # 4. video findings have no editable action yet (see video_detections'
+    # definition above) — surfacing them in a report is the whole remedy for
+    # now, so they're resolved the moment that report is generated rather
+    # than left pending for a confirm step that will never come.
+    video_reviewed = [d["detection_id"] for d in video_detections]
+    for detection_id in video_reviewed:
+        _set_detection_resolution(detection_id, "accepted", auth_headers)
+
+    if not proposed and not text_redaction and not video_reviewed:
         return jsonify({"error": "nothing to remediate"}), 400
 
     return jsonify({
@@ -348,6 +367,7 @@ def remediate_content(draft_id):
         "original": f"/{original_path}" if original_path else None,
         "proposed_edits": proposed,
         "text_redaction": text_redaction,
+        "video_findings_reviewed": video_reviewed,
     }), 200
 
 

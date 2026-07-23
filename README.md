@@ -24,6 +24,7 @@ A microservices backend built with Flask, organised into **atomic** (CRUD) and *
 | 5013 | Update Exposure Profile   | composite |
 | 5014 | Upload Post               | composite |
 | 5015 | Manage History            | composite |
+| 5016 | Scan Video                | composite |
 
 These ports are only for local Docker Compose. In production each service is deployed separately on Google Cloud Run, so the frontend is instead pointed at whatever URL each one gets there (see "Running the Frontend" below).
 
@@ -34,7 +35,7 @@ These ports are only for local Docker Compose. In production each service is dep
 - [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/)
 - Python 3.12 (if running services locally without Docker)
 - [Node.js](https://nodejs.org/) `^20.19.0` or `>=22.12.0` (only needed to run the frontend — see below)
-- A GCP service-account key with Cloud Storage access, saved under `secret/`.
+- A GCP service-account key with Cloud Storage access, saved under `secret/` — also used by `scan_video` to call the Video Intelligence API (see the `CLOUD_VIDEO_INTELLIGENCE_KEY` note below for why a service account is required there instead of a plain API key).
 - A `.env` file in the project root with the following variables. `DB_SERVER`/`DB_NAME`/`DB_USER`/`DB_PASSWORD` can be left blank unless you're using the optional real-Azure flow below — the local dev stack overrides them with its own local SQL Server credentials:
 
 ```env
@@ -44,12 +45,14 @@ DB_USER=<db-username>
 DB_PASSWORD=<db-password>
 OPENAI_API_KEY=<your-openai-api-key>
 CLOUD_VISION_KEY=<your-google-cloud-vision-api-key>
-CLOUD_VIDEO_INTELLIGENCE_KEY=<your-google-cloud-video-intelligence-api-key>
+CLOUD_VIDEO_INTELLIGENCE_KEY=<your-google-cloud-video-intelligence-api-key>  # provisioned but NOT used — see note below
 FRONTEND_ORIGIN=<comma-separated allowed CORS origins, e.g. https://your-frontend.vercel.app>
 JWT_SECRET_KEY=<secret used to sign/verify login tokens>
 INTERNAL_API_KEY=<shared secret for service-to-service calls under /internal/>
 GCS_BUCKET=<google-cloud-storage-bucket-name>
 ```
+
+> **`CLOUD_VIDEO_INTELLIGENCE_KEY` is not actually used anywhere** — confirmed against the real API while building video scanning support: Video Intelligence's `videos:annotate` method rejects plain API-key auth outright (`401 UNAUTHENTICATED`, both over gRPC and REST), unlike Cloud Vision, which does accept one (see `CLOUD_VISION_KEY` above). `scan_video` instead authenticates with the GCP service-account key already used for Cloud Storage (`GOOGLE_APPLICATION_CREDENTIALS`, see Prerequisites above), which does have permission to call it. The env var is left in `.env`/here only because it's already provisioned; it isn't read by any service.
 
 ## 3. Running the Program Locally
 
@@ -122,6 +125,8 @@ def init_db():
 
 - Alter existing tables (add/remove/rename columns, change types, etc.) — `db.create_all()` only creates tables that don't exist yet. If you change an existing model's columns, you need to alter the table yourself (e.g. via a manual `ALTER TABLE`, or by dropping and recreating the table if the data is disposable).
 
+  This applies to video scanning support: `detections.time_range` and `content_drafts.scan_status`/`scan_operation` are new columns on tables that already existed. If your `local_db` was already running before pulling this change, either wipe it (`docker compose -f docker-compose.yml -f docker-compose-dev.yml down -v`, then `up --build` again — data is disposable there) or run the three `ALTER TABLE` statements yourself if you have data worth keeping. Against Azure, run `ALTER TABLE` manually — `init-db` won't add them.
+
 **How to run it**, per service, with the Azure-backed containers already up:
 
 ```bash
@@ -144,7 +149,7 @@ npm install
 npm run dev
 ```
 
-Opens at `http://localhost:3000`. The upload/scan/remediation flow calls `upload_post` (5014), `scan_draft` (5012), `detections` (5003), `remediate_content` (5011), `quarantine_high_risk` (5010), `generate_teachable_moment` (5009), and `manage_history` (5015) directly from the browser — CORS is already enabled on each.
+Opens at `http://localhost:3000`. The upload/scan/remediation flow calls `upload_post` (5014), `scan_draft` (5012), `detections` (5003), `remediate_content` (5011), `quarantine_high_risk` (5010), `generate_teachable_moment` (5009), and `manage_history` (5015) directly from the browser — CORS is already enabled on each. For a video draft, `scan_draft` proxies the actual video scan to `scan_video` (5016) itself; the frontend never calls `scan_video` directly, it just keeps polling `scan_draft`'s `/process` endpoint the same way it does for images.
 
 ---
 
@@ -173,7 +178,7 @@ cd backend
 
 # 1. Bring up the dev stack (local SQL Server, not Azure)
 docker compose -f docker-compose.yml -f docker-compose-dev.yml up --build -d content_drafts detections edits \
-  quarantine_items scan_draft remediate_content quarantine_high_risk
+  quarantine_items scan_draft scan_video remediate_content quarantine_high_risk
 
 # 2. Build and run the smoke test as a standalone container on the same network
 docker build -t backend-smoke_test ./testing/smoke
@@ -192,7 +197,7 @@ cd backend
 #    docker-compose-test.yml here, it overrides edits/quarantine_items to run
 #    pytest instead of their real server, which breaks everything downstream)
 docker compose -f docker-compose.yml up --build -d azure_db content_drafts detections edits \
-  quarantine_items scan_draft remediate_content quarantine_high_risk
+  quarantine_items scan_draft scan_video remediate_content quarantine_high_risk
 
 # 2. Build and run the smoke test as a standalone container on the same network
 docker build -t backend-smoke_test ./testing/smoke
