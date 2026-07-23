@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { login, signup } from '../api'
 
 const emit = defineEmits(['success'])  // a way to tell App.vue "login worked"
@@ -10,6 +10,44 @@ const error = ref('')
 const loading = ref(false)
 const mode = ref('login')              // toggles between 'login' and 'signup'
 const authOpen = ref(false)
+
+// drives the population-meter number in the preview card, in step with the
+// CSS animation below (both keyed to the same 6s cycle)
+const METER_STEPS = [
+  { t: 0, label: '6.0M' },
+  { t: 1700, label: '640K' },
+  { t: 3400, label: '42K' },
+  { t: 5100, label: '1' },
+]
+const METER_CYCLE_MS = 6000
+const meterLabel = ref(METER_STEPS[0].label)
+let meterTimer = null
+
+onMounted(() => {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    meterLabel.value = METER_STEPS[METER_STEPS.length - 1].label
+    return
+  }
+  // anchor to mount time, not wall-clock time — the CSS animation's own
+  // clock starts fresh at 0% when the element mounts, so the label has to
+  // start from the same zero point or it can open on the wrong step (e.g.
+  // showing "1" while the circle is still on its blue opening frame)
+  const start = performance.now()
+  const tick = () => {
+    const t = (performance.now() - start) % METER_CYCLE_MS
+    let current = METER_STEPS[0].label
+    for (const step of METER_STEPS) {
+      if (t >= step.t) current = step.label
+    }
+    meterLabel.value = current
+  }
+  tick()
+  meterTimer = setInterval(tick, 110)
+})
+
+onUnmounted(() => {
+  if (meterTimer) clearInterval(meterTimer)
+})
 
 function openAuth(nextMode) {
   mode.value = nextMode
@@ -41,37 +79,55 @@ async function submit() {
 
 <template>
   <div class="login-screen app-screen">
-    <div class="preview-layer" aria-hidden="true">
-      <div class="scan-card">
-        <div class="scan-header">
-          <span class="scan-dot"></span>
-          <div class="scan-lines">
-            <span></span>
-            <span></span>
+    <div class="hero-group">
+      <section class="welcome-copy">
+        <p class="status-chip safe">Private by default</p>
+        <h1 class="brand-mark">Trace</h1>
+        <p class="brand-line">One photo's harmless. String a few together, and someone could find exactly who you are. <strong>Trace catches it first.</strong></p>
+      </section>
+
+      <div class="preview-frame" aria-hidden="true">
+        <div class="preview-stage">
+          <div class="mini-stack">
+            <div class="mini-card c1">
+              <div class="mini-fill"></div>
+              <span class="mini-line"></span>
+              <span class="mini-check">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M5 13l4 4 10-11" />
+                </svg>
+              </span>
+            </div>
+            <div class="mini-card c2">
+              <div class="mini-fill"></div>
+              <span class="mini-line"></span>
+              <span class="mini-check">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 3.5 21.5 20h-19z" />
+                  <line x1="12" y1="9.5" x2="12" y2="14" />
+                  <circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none" />
+                </svg>
+              </span>
+            </div>
+            <div class="mini-card c3">
+              <div class="mini-fill"></div>
+              <span class="mini-line"></span>
+              <span class="mini-check">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 3.5 21.5 20h-19z" />
+                  <line x1="12" y1="9.5" x2="12" y2="14" />
+                  <circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none" />
+                </svg>
+              </span>
+            </div>
           </div>
-          <strong>Ready</strong>
-        </div>
-        <div class="scan-preview">
-          <span class="scan-line"></span>
-          <span class="photo-block block-sky"></span>
-          <span class="photo-block block-person"></span>
-          <span class="photo-block block-sign"></span>
-          <span class="target target-face"></span>
-          <span class="target target-place"></span>
-        </div>
-        <div class="finding-list">
-          <span>Face</span>
-          <span>Location</span>
-          <span>Metadata</span>
+          <div class="meter-side">
+            <div class="pop-circle">{{ meterLabel }}</div>
+            <div class="risk-wash"></div>
+          </div>
         </div>
       </div>
     </div>
-
-    <section class="welcome-copy">
-      <p class="status-chip safe">Private by default</p>
-      <h1 class="brand-mark">Trace</h1>
-      <p class="brand-line">Check your post for faces, places, text, and hidden photo data before you share it.</p>
-    </section>
 
     <div class="login-card trace-card" :class="{ expanded: authOpen }">
       <div v-if="!authOpen" class="cta-stack">
@@ -115,8 +171,8 @@ async function submit() {
 <style scoped>
 .login-screen {
   position: relative;
-  justify-content: space-between;
-  gap: 14px;
+  justify-content: center;
+  gap: 52px;
   padding: 24px 22px 20px;
   overflow-x: hidden;
   overflow-y: auto;
@@ -127,150 +183,189 @@ async function submit() {
     linear-gradient(24deg, rgba(244, 183, 64, 0.16), transparent 45%),
     linear-gradient(180deg, #f8fbff 0%, #ffffff 54%, #f5fbf8 100%);
 }
-.preview-layer,
-.welcome-copy,
+.hero-group,
 .login-card {
   position: relative;
   z-index: 1;
 }
-.preview-layer {
-  flex: 0 0 250px;
-  min-height: 0;
-}
-.scan-card {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  width: min(300px, 100%);
-  padding: 14px;
-  border: 1px solid rgba(207, 216, 229, 0.9);
-  border-radius: 20px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 251, 255, 0.94));
-  box-shadow: 0 22px 44px rgba(23, 34, 53, 0.14);
-  transform: translateX(-50%);
-}
-.scan-card::before {
-  position: absolute;
-  inset: -22px -18px auto auto;
-  width: 86px;
-  height: 86px;
-  border-radius: 30px;
-  background: rgba(244, 183, 64, 0.2);
-  content: '';
-}
-.scan-header {
+.hero-group {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
+  flex-direction: column;
+  gap: 36px;
 }
-.scan-dot {
-  width: 32px;
-  height: 32px;
-  border-radius: 11px;
-  background: linear-gradient(135deg, var(--trace-primary), var(--trace-mint));
+.preview-frame {
+  width: min(360px, 100%);
+  margin: 0 auto;
 }
-.scan-lines {
-  display: grid;
-  flex: 1;
-  gap: 6px;
-}
-.scan-lines span {
-  display: block;
-  height: 7px;
-  border-radius: 999px;
-  background: #d9e3f1;
-}
-.scan-lines span:last-child {
-  width: 58%;
-}
-.scan-header strong {
-  color: var(--trace-success);
-  font-size: 0.72rem;
-}
-.scan-preview {
+.preview-stage {
   position: relative;
-  height: 148px;
+  display: flex;
+  height: 190px;
+  padding: 12px;
+  gap: 12px;
   overflow: hidden;
   border: 1px solid #dce6f2;
-  border-radius: 16px;
-  background:
-    linear-gradient(145deg, #edf6ff 0%, #f9fbff 48%, #e8f7f0 100%);
-}
-.photo-block {
-  position: absolute;
-}
-.block-sky {
-  top: 18px;
-  right: 24px;
-  width: 52px;
-  height: 52px;
   border-radius: 18px;
-  background: #ffd36d;
+  background:
+    linear-gradient(145deg, #eef5ff 0%, #f9fbff 55%, #eaf7f1 100%);
 }
-.block-person {
-  left: 44px;
-  bottom: 24px;
-  width: 58px;
-  height: 84px;
-  border-radius: 22px 22px 16px 16px;
-  background: linear-gradient(180deg, #8ab6f6 0 42%, #245c9e 42% 100%);
+.mini-stack {
+  flex: 1.15;
+  display: grid;
+  grid-template-rows: repeat(3, 1fr);
+  gap: 8px;
 }
-.block-sign {
-  right: 42px;
-  bottom: 30px;
-  width: 74px;
-  height: 44px;
-  border-radius: 9px;
-  background: #fff;
-  box-shadow: inset 0 0 0 2px #bcd0e7;
+.mini-card {
+  position: relative;
+  border-radius: 11px;
+  background: #ffffff;
+  border: 1px solid #dfe8f3;
+  overflow: hidden;
 }
-.scan-line {
+.mini-card .mini-fill {
   position: absolute;
-  left: 0;
-  top: 50%;
-  width: 100%;
+  inset: 0;
+  background: linear-gradient(135deg, #e7f0ff, #eefaf4);
+}
+.mini-card .mini-line {
+  position: absolute;
+  left: 6%;
+  width: 88%;
   height: 3px;
   background: rgba(47, 111, 237, 0.75);
-  box-shadow: 0 0 18px rgba(47, 111, 237, 0.42);
+  box-shadow: 0 0 10px rgba(47, 111, 237, 0.4);
+  opacity: 0;
 }
-.target {
+.mini-card .mini-check {
   position: absolute;
-  border: 2px solid var(--trace-coral);
-  border-radius: 12px;
+  right: 7px;
+  top: 7px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  opacity: 0;
 }
-.target-face {
-  left: 48px;
-  top: 44px;
-  width: 48px;
-  height: 42px;
+.mini-card.c1 .mini-line {
+  animation: mini-sweep-1 6s linear infinite;
 }
-.target-place {
-  right: 36px;
-  bottom: 28px;
-  width: 84px;
-  height: 50px;
-  border-color: var(--trace-primary);
+.mini-card.c1 .mini-check {
+  background: var(--trace-mint);
+  animation: mini-check-1 6s linear infinite;
 }
-.finding-list {
-  display: flex;
-  gap: 7px;
-  margin-top: 12px;
+.mini-card.c2 .mini-line {
+  animation: mini-sweep-2 6s linear infinite;
 }
-.finding-list span {
+.mini-card.c2 .mini-check {
+  background: var(--trace-sun);
+  color: #6b4a06;
+  animation: mini-check-2 6s linear infinite;
+}
+.mini-card.c3 .mini-line {
+  animation: mini-sweep-3 6s linear infinite;
+}
+.mini-card.c3 .mini-check {
+  background: var(--trace-danger);
+  animation:
+    mini-check-3 6s linear infinite,
+    badge-alert-ring 6s linear infinite;
+}
+@keyframes mini-sweep-1 {
+  0%, 2% { top: 10%; opacity: 0; }
+  6% { opacity: 1; }
+  22% { top: 80%; opacity: 1; }
+  26%, 100% { opacity: 0; }
+}
+@keyframes mini-check-1 {
+  0%, 24% { opacity: 0; }
+  28%, 100% { opacity: 1; }
+}
+@keyframes mini-sweep-2 {
+  0%, 30% { opacity: 0; }
+  32% { top: 10%; opacity: 1; }
+  50% { top: 80%; opacity: 1; }
+  54%, 100% { opacity: 0; }
+}
+@keyframes mini-check-2 {
+  0%, 52% { opacity: 0; }
+  56%, 100% { opacity: 1; }
+}
+@keyframes mini-sweep-3 {
+  0%, 58% { opacity: 0; }
+  60% { top: 10%; opacity: 1; }
+  78% { top: 80%; opacity: 1; }
+  82%, 100% { opacity: 0; }
+}
+@keyframes mini-check-3 {
+  0%, 80% { opacity: 0; }
+  84%, 100% { opacity: 1; }
+}
+@keyframes badge-alert-ring {
+  0%, 83% { box-shadow: 0 0 0 0 rgba(217, 72, 65, 0); }
+  90% { box-shadow: 0 0 0 4px rgba(217, 72, 65, 0.4); }
+  97%, 100% { box-shadow: 0 0 0 0 rgba(217, 72, 65, 0); }
+}
+.meter-side {
+  position: relative;
   flex: 1;
-  padding: 7px 0;
-  border-radius: 10px;
-  background: #edf5ff;
-  color: var(--trace-primary-dark);
-  font-size: 0.68rem;
-  font-weight: 900;
-  text-align: center;
+  display: grid;
+  place-items: center;
 }
-.finding-list span:nth-child(3) {
-  background: #fff5df;
-  color: #936509;
+.pop-circle {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-weight: 800;
+  font-size: 0.86rem;
+  color: var(--trace-primary-dark);
+  font-variant-numeric: tabular-nums;
+  background: radial-gradient(circle at 35% 30%, #eaf3ff, #bcd4f7 60%, #8fb4ea 100%);
+  animation:
+    circle-steps 6s linear infinite,
+    circle-alert-ring 6s linear infinite;
+}
+@keyframes circle-steps {
+  0%, 24% {
+    width: 98px;
+    height: 98px;
+    background: radial-gradient(circle at 35% 30%, #eaf3ff, #bcd4f7 60%, #8fb4ea 100%);
+    color: var(--trace-primary-dark);
+    font-size: 0.86rem;
+  }
+  28%, 52% {
+    width: 76px;
+    height: 76px;
+    background: radial-gradient(circle at 35% 30%, #fff3d9, var(--trace-sun) 78%);
+    color: #6b4a06;
+  }
+  56%, 100% {
+    width: 50px;
+    height: 50px;
+    background: radial-gradient(circle at 35% 30%, #ffd9d5, var(--trace-danger) 78%);
+    color: #fff;
+    font-size: 0.68rem;
+  }
+}
+@keyframes circle-alert-ring {
+  0%, 55% { box-shadow: 0 0 0 0 rgba(217, 72, 65, 0); }
+  64% { box-shadow: 0 0 0 7px rgba(217, 72, 65, 0.32); }
+  73%, 78% { box-shadow: 0 0 0 0 rgba(217, 72, 65, 0); }
+  86% { box-shadow: 0 0 0 7px rgba(217, 72, 65, 0.32); }
+  95%, 100% { box-shadow: 0 0 0 0 rgba(217, 72, 65, 0); }
+}
+.risk-wash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 78% 82%, rgba(217, 72, 65, 0.32), transparent 68%);
+  opacity: 0;
+  animation: risk-wash-in 6s linear infinite;
+}
+@keyframes risk-wash-in {
+  0%, 54% { opacity: 0; }
+  64%, 100% { opacity: 1; }
 }
 .welcome-copy {
   text-align: center;
@@ -292,7 +387,10 @@ async function submit() {
 }
 .login-card {
   padding: 14px;
+  border: 1px solid rgba(207, 216, 229, 0.9);
   border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(247, 251, 255, 0.95));
+  box-shadow: 0 18px 38px rgba(23, 34, 53, 0.1);
   transition:
     padding 0.22s ease,
     transform 0.22s ease;
@@ -341,18 +439,17 @@ async function submit() {
 
 @media (max-height: 740px) {
   .login-screen {
-    gap: 10px;
+    gap: 26px;
     padding: 18px 20px 16px;
   }
-  .preview-layer {
-    flex-basis: 220px;
+  .hero-group {
+    gap: 22px;
   }
-  .scan-card {
-    width: 278px;
-    padding: 12px;
+  .preview-frame {
+    width: 320px;
   }
-  .scan-preview {
-    height: 122px;
+  .preview-stage {
+    height: 158px;
   }
   .brand-mark {
     font-size: 2.35rem;
@@ -366,6 +463,31 @@ async function submit() {
   }
   .auth-form {
     gap: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mini-line,
+  .mini-check,
+  .pop-circle,
+  .risk-wash {
+    animation: none !important;
+  }
+  .mini-line {
+    opacity: 0;
+  }
+  .mini-check {
+    opacity: 1;
+  }
+  .pop-circle {
+    width: 50px;
+    height: 50px;
+    background: radial-gradient(circle at 35% 30%, #ffd9d5, var(--trace-danger) 78%);
+    color: #fff;
+    font-size: 0.68rem;
+  }
+  .risk-wash {
+    opacity: 1;
   }
 }
 </style>
