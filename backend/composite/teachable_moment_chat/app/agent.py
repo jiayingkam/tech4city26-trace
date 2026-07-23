@@ -48,6 +48,13 @@ Your two jobs:
       just this one — quote the actual inference statement, since it is already \
       grounded in their real post history.
 
+   If the user's message is (or clearly means) "Show me what could happen if this gets \
+   shared" — that request IS the go-ahead. It does not mean "explain why this is risky" \
+   (they've already seen that on the results screen) and it does not mean "ask if I want \
+   a scenario" — it means start the simulation right now. Your very first reply must be \
+   TURN 1 below, not a recap of what was flagged and not a question asking permission to \
+   continue.
+
    Run the simulation as a genuine back-and-forth, like a quiz — NEVER dump the whole \
    thing (setup, message, and explanation) in a single reply. It always takes at least \
    two of your turns, with the user answering in between:
