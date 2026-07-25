@@ -23,6 +23,25 @@ QUARANTINE_ITEMS_SERVICE_URL = os.environ.get("QUARANTINE_ITEMS_SERVICE_URL", "h
 UPLOAD_POST_SERVICE_URL = os.environ.get("UPLOAD_POST_SERVICE_URL", "http://UPLOAD_POST:5014")
 REMEDIATE_CONTENT_SERVICE_URL = os.environ.get("REMEDIATE_CONTENT_SERVICE_URL", "http://REMEDIATE_CONTENT:5011")
 USERS_SERVICE_URL = os.environ.get("USERS_SERVICE_URL", "http://USERS:5001")
+UPDATE_EXPOSURE_PROFILE_SERVICE_URL = os.environ.get(
+    "UPDATE_EXPOSURE_PROFILE_SERVICE_URL", "http://update_exposure_profile:5013"
+)
+
+
+def _invalidate_exposure_profile(auth_headers):
+    """Best-effort: drop the caller's cached exposure profile after deleting posts,
+    so the next Privacy Risk view rebuilds it. Never blocks or fails the delete."""
+    owner_id = get_jwt_identity()
+    if not owner_id:
+        return
+    try:
+        requests.delete(
+            f"{UPDATE_EXPOSURE_PROFILE_SERVICE_URL}/users/{owner_id}/profile",
+            headers=auth_headers,
+            timeout=3,
+        )
+    except requests.RequestException:
+        pass
 
 INTERNAL_API_KEY = os.environ.get("INTERNAL_API_KEY")
 RETENTION_WINDOW_DAYS = 90  # "3 months", anchored per-draft to captured_at
@@ -314,6 +333,11 @@ def delete_history():
     for quarantine_id in quarantine_ids:
         resp = requests.delete(f"{QUARANTINE_ITEMS_SERVICE_URL}/quarantine/{quarantine_id}", headers=auth_headers)
         results["quarantine_ids"][quarantine_id] = "deleted" if resp.status_code == 204 else "failed"
+
+    # Deleting posts changes the user's cumulative footprint — drop the cached
+    # exposure profile so the next Privacy Risk view rebuilds it. Best-effort.
+    if draft_ids:
+        _invalidate_exposure_profile(auth_headers)
 
     return jsonify(results), 200
 

@@ -132,7 +132,7 @@ def login():
 
     user = db.session.scalar(db.select(User).filter_by(email=email))
     if not user or not check_password_hash(user.password_hash, password):
-        return jsonify({"error": "invalid email or password"}), 401
+        return jsonify({"error": "Invalid email or password"}), 401
 
     token = create_access_token(identity=user.user_id)
     return jsonify({"token": token, "user": user.to_dict()}), 200

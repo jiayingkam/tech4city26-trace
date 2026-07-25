@@ -1,0 +1,78 @@
+2026-07-23 20:53:49 | common | default_trace_id | INFO | Registered connector pool type: default
+2026-07-23 20:53:49 | common | default_trace_id | INFO | Registered connector pool type: httpx
+2026-07-23 20:53:50 | common | default_trace_id | INFO | Registered query expression support for milvus
+2026-07-23 20:53:50 | common | default_trace_id | INFO | Registered query expression support for chroma
+2026-07-23 20:53:50 | common | default_trace_id | INFO | Registered parser ExcelParser for .xlsx
+2026-07-23 20:53:50 | common | default_trace_id | INFO | Registered parser ExcelParser for .csv
+2026-07-23 20:53:50 | common | default_trace_id | INFO | Registered parser ExcelParser for .tsv
+2026-07-23 20:53:50 | common | default_trace_id | INFO | Registered parser TxtMdParser for .txt
+2026-07-23 20:53:50 | common | default_trace_id | INFO | Registered parser TxtMdParser for .md
+2026-07-23 20:53:50 | common | default_trace_id | INFO | Registered parser TxtMdParser for .markdown
+2026-07-23 20:53:50 | common | default_trace_id | INFO | Registered parser HTMLFileParser for .htm
+2026-07-23 20:53:50 | common | default_trace_id | INFO | Registered parser HTMLFileParser for .html
+2026-07-23 20:53:50 | common | default_trace_id | INFO | Registered parser JSONParser for .json
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Registered parser PDFParser for .pdf
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Registered parser WordParser for .docx
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Registered parser ImageParser for .png
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Registered parser ImageParser for .jpg
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Registered parser ImageParser for .jpeg
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Registered parser ImageParser for .webp
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Registered parser ImageParser for .gif
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Registered parser ImageParser for .jfif
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Added tags to resource. resource_id=72ce9bb5b1464a2e84c5b43df38f6da1, added_tags={'67a197ee95184bc691fd27a8bc565b2e'}, current_tags=['67a197ee95184bc691fd27a8bc565b2e']
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Added tags to resource. resource_id=8ab90f5ebca348bf96fb61693f5e3e23, added_tags={'67a197ee95184bc691fd27a8bc565b2e'}, current_tags=['67a197ee95184bc691fd27a8bc565b2e']
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Added tags to resource. resource_id=ba50e38ece0743ee97807ff5dbbefa9d, added_tags={'67a197ee95184bc691fd27a8bc565b2e'}, current_tags=['67a197ee95184bc691fd27a8bc565b2e']
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Removed resource. resource_id=72ce9bb5b1464a2e84c5b43df38f6da1, removed_tags=['67a197ee95184bc691fd27a8bc565b2e']
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Removed resource. resource_id=ba50e38ece0743ee97807ff5dbbefa9d, removed_tags=['67a197ee95184bc691fd27a8bc565b2e']
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Removed resource. resource_id=8ab90f5ebca348bf96fb61693f5e3e23, removed_tags=['67a197ee95184bc691fd27a8bc565b2e']
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Added tags to resource. resource_id=640af54dc346495aa534b6ef7140b66c, added_tags={'fee989193def4692b4e2d9bb9e8f26a4'}, current_tags=['fee989193def4692b4e2d9bb9e8f26a4']
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Added tags to resource. resource_id=319a57481a59472dab9294169908959c, added_tags={'fee989193def4692b4e2d9bb9e8f26a4'}, current_tags=['fee989193def4692b4e2d9bb9e8f26a4']
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Added tags to resource. resource_id=4014d6e0ca5c4e0fadf23ddbb80ab672, added_tags={'fee989193def4692b4e2d9bb9e8f26a4'}, current_tags=['fee989193def4692b4e2d9bb9e8f26a4']
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Removed resource. resource_id=319a57481a59472dab9294169908959c, removed_tags=['fee989193def4692b4e2d9bb9e8f26a4']
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Removed resource. resource_id=640af54dc346495aa534b6ef7140b66c, removed_tags=['fee989193def4692b4e2d9bb9e8f26a4']
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Removed resource. resource_id=4014d6e0ca5c4e0fadf23ddbb80ab672, removed_tags=['fee989193def4692b4e2d9bb9e8f26a4']
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Added tags to resource. resource_id=f1cb41e478f043409b94654f9f53ba14, added_tags={'7a5245db852b4e22a7bbd1510fa8c767'}, current_tags=['7a5245db852b4e22a7bbd1510fa8c767']
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Added tags to resource. resource_id=b9bb13b7bdeb4111a566a232d175a1cf, added_tags={'7a5245db852b4e22a7bbd1510fa8c767'}, current_tags=['7a5245db852b4e22a7bbd1510fa8c767']
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Added tags to resource. resource_id=4e2f8a9f1ebf4db2b738f10c34950c30, added_tags={'7a5245db852b4e22a7bbd1510fa8c767'}, current_tags=['7a5245db852b4e22a7bbd1510fa8c767']
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Removed resource. resource_id=f1cb41e478f043409b94654f9f53ba14, removed_tags=['7a5245db852b4e22a7bbd1510fa8c767']
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Removed resource. resource_id=4e2f8a9f1ebf4db2b738f10c34950c30, removed_tags=['7a5245db852b4e22a7bbd1510fa8c767']
+2026-07-23 20:53:51 | common | default_trace_id | INFO | Removed resource. resource_id=b9bb13b7bdeb4111a566a232d175a1cf, removed_tags=['7a5245db852b4e22a7bbd1510fa8c767']
+2026-07-23 20:59:11 | common | default_trace_id | INFO | Registered connector pool type: default
+2026-07-23 20:59:11 | common | default_trace_id | INFO | Registered connector pool type: httpx
+2026-07-23 20:59:12 | common | default_trace_id | INFO | Registered query expression support for milvus
+2026-07-23 20:59:12 | common | default_trace_id | INFO | Registered query expression support for chroma
+2026-07-23 20:59:12 | common | default_trace_id | INFO | Registered parser ExcelParser for .xlsx
+2026-07-23 20:59:12 | common | default_trace_id | INFO | Registered parser ExcelParser for .csv
+2026-07-23 20:59:12 | common | default_trace_id | INFO | Registered parser ExcelParser for .tsv
+2026-07-23 20:59:12 | common | default_trace_id | INFO | Registered parser TxtMdParser for .txt
+2026-07-23 20:59:12 | common | default_trace_id | INFO | Registered parser TxtMdParser for .md
+2026-07-23 20:59:12 | common | default_trace_id | INFO | Registered parser TxtMdParser for .markdown
+2026-07-23 20:59:12 | common | default_trace_id | INFO | Registered parser HTMLFileParser for .htm
+2026-07-23 20:59:12 | common | default_trace_id | INFO | Registered parser HTMLFileParser for .html
+2026-07-23 20:59:12 | common | default_trace_id | INFO | Registered parser JSONParser for .json
+2026-07-23 20:59:12 | common | default_trace_id | INFO | Registered parser PDFParser for .pdf
+2026-07-23 20:59:12 | common | default_trace_id | INFO | Registered parser WordParser for .docx
+2026-07-23 20:59:12 | common | default_trace_id | INFO | Registered parser ImageParser for .png
+2026-07-23 20:59:12 | common | default_trace_id | INFO | Registered parser ImageParser for .jpg
+2026-07-23 20:59:12 | common | default_trace_id | INFO | Registered parser ImageParser for .jpeg
+2026-07-23 20:59:12 | common | default_trace_id | INFO | Registered parser ImageParser for .webp
+2026-07-23 20:59:12 | common | default_trace_id | INFO | Registered parser ImageParser for .gif
+2026-07-23 20:59:12 | common | default_trace_id | INFO | Registered parser ImageParser for .jfif
+2026-07-23 20:59:13 | common | default_trace_id | INFO | Added tags to resource. resource_id=8857a5866491401dad80891c04ef75e8, added_tags={'8aa16639deed4bc4998fd58fe5f16730'}, current_tags=['8aa16639deed4bc4998fd58fe5f16730']
+2026-07-23 20:59:13 | common | default_trace_id | INFO | Added tags to resource. resource_id=4626b228fdb24d0189458619167864e1, added_tags={'8aa16639deed4bc4998fd58fe5f16730'}, current_tags=['8aa16639deed4bc4998fd58fe5f16730']
+2026-07-23 20:59:13 | common | default_trace_id | INFO | Added tags to resource. resource_id=eda31c4d72f3466cbe507cdb0ee975bb, added_tags={'8aa16639deed4bc4998fd58fe5f16730'}, current_tags=['8aa16639deed4bc4998fd58fe5f16730']
+2026-07-23 20:59:13 | common | default_trace_id | INFO | Removed resource. resource_id=4626b228fdb24d0189458619167864e1, removed_tags=['8aa16639deed4bc4998fd58fe5f16730']
+2026-07-23 20:59:13 | common | default_trace_id | INFO | Removed resource. resource_id=eda31c4d72f3466cbe507cdb0ee975bb, removed_tags=['8aa16639deed4bc4998fd58fe5f16730']
+2026-07-23 20:59:13 | common | default_trace_id | INFO | Removed resource. resource_id=8857a5866491401dad80891c04ef75e8, removed_tags=['8aa16639deed4bc4998fd58fe5f16730']
+2026-07-23 20:59:13 | common | default_trace_id | INFO | Added tags to resource. resource_id=16f16c1f88fe4920922865fbfd7b0d24, added_tags={'a167f65e86da404185913a8120b1f6cc'}, current_tags=['a167f65e86da404185913a8120b1f6cc']
+2026-07-23 20:59:13 | common | default_trace_id | INFO | Added tags to resource. resource_id=e50ccbc2b94e419a9232a9479f3b8985, added_tags={'a167f65e86da404185913a8120b1f6cc'}, current_tags=['a167f65e86da404185913a8120b1f6cc']
+2026-07-23 20:59:13 | common | default_trace_id | INFO | Added tags to resource. resource_id=d2bdc7c3532c4fc7bf3d190979ed3dd0, added_tags={'a167f65e86da404185913a8120b1f6cc'}, current_tags=['a167f65e86da404185913a8120b1f6cc']
+2026-07-23 20:59:13 | common | default_trace_id | INFO | Removed resource. resource_id=16f16c1f88fe4920922865fbfd7b0d24, removed_tags=['a167f65e86da404185913a8120b1f6cc']
+2026-07-23 20:59:13 | common | default_trace_id | INFO | Removed resource. resource_id=e50ccbc2b94e419a9232a9479f3b8985, removed_tags=['a167f65e86da404185913a8120b1f6cc']
+2026-07-23 20:59:13 | common | default_trace_id | INFO | Removed resource. resource_id=d2bdc7c3532c4fc7bf3d190979ed3dd0, removed_tags=['a167f65e86da404185913a8120b1f6cc']
+2026-07-23 20:59:13 | common | default_trace_id | INFO | Added tags to resource. resource_id=69794f7fcaff462483d9fe9f9236a794, added_tags={'fdbbbc00515245a98ae762ea9ff1eaff'}, current_tags=['fdbbbc00515245a98ae762ea9ff1eaff']
+2026-07-23 20:59:13 | common | default_trace_id | INFO | Added tags to resource. resource_id=a062c072d3b1441a94746c521e5cbf73, added_tags={'fdbbbc00515245a98ae762ea9ff1eaff'}, current_tags=['fdbbbc00515245a98ae762ea9ff1eaff']
+2026-07-23 20:59:13 | common | default_trace_id | INFO | Added tags to resource. resource_id=b8389ffaf4f64074b4e471350d3f5e23, added_tags={'fdbbbc00515245a98ae762ea9ff1eaff'}, current_tags=['fdbbbc00515245a98ae762ea9ff1eaff']
+2026-07-23 20:59:13 | common | default_trace_id | INFO | Removed resource. resource_id=69794f7fcaff462483d9fe9f9236a794, removed_tags=['fdbbbc00515245a98ae762ea9ff1eaff']
+2026-07-23 20:59:13 | common | default_trace_id | INFO | Removed resource. resource_id=a062c072d3b1441a94746c521e5cbf73, removed_tags=['fdbbbc00515245a98ae762ea9ff1eaff']
+2026-07-23 20:59:13 | common | default_trace_id | INFO | Removed resource. resource_id=b8389ffaf4f64074b4e471350d3f5e23, removed_tags=['fdbbbc00515245a98ae762ea9ff1eaff']

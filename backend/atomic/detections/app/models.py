@@ -16,6 +16,7 @@ class Detection(db.Model):
     model_version = db.Column(db.String, nullable=True)          # e.g. "vlm-0.3"
     detail = db.Column(db.String(255), nullable=True)            # one-line plain-language explanation
     bounding_region = db.Column(db.JSON, nullable=True)          # {"x":120,"y":340,"w":80,"h":30}, null for text/metadata
+    time_range = db.Column(db.JSON, nullable=True)               # {"start":3.2,"end":7.8} seconds, video findings only — null otherwise
     created_at = db.Column(db.DateTime(timezone=True), nullable=False,
                            default=lambda: datetime.now(timezone.utc))
 
@@ -32,5 +33,6 @@ class Detection(db.Model):
             "model_version": self.model_version,
             "detail": self.detail,
             "bounding_region": self.bounding_region,
+            "time_range": self.time_range,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

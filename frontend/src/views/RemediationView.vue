@@ -8,18 +8,30 @@ import {
   downloadRemediated,
   updateEditRegion,
   addManualEdit,
+  deleteEdit,
   renameDetection,
+  sendTeachableMomentChat,
 } from '../api'
+import TeachableChatPanel from '../components/TeachableChatPanel.vue'
 
 const props = defineProps({
   draftId: { type: String, required: true },
   remediation: { type: Object, required: true },
   photoUrl: { type: String, default: null },
   detections: { type: Array, default: () => [] },
+  teachableMoment: { type: Object, default: null },
 })
 const emit = defineEmits(['restart'])
 
-const proposedEdits = ref((props.remediation.proposed_edits || []).map((e) => ({ ...e })))
+const proposedEdits = ref(
+  (props.remediation.proposed_edits || [])
+    .map((e) => ({ ...e }))
+    .sort((a, b) => {
+      const aManual = props.detections.find((d) => d.detection_id === a.detection_id)?.model_version === 'manual'
+      const bManual = props.detections.find((d) => d.detection_id === b.detection_id)?.model_version === 'manual'
+      return aManual === bManual ? 0 : aManual ? 1 : -1
+    })
+)
 const redaction = props.remediation.text_redaction
 
 // Edits don't carry their own description of what they're for (just a
@@ -319,6 +331,16 @@ function cancelRename() {
 // this list can land on an unrelated checkbox and spuriously fire its
 // change handler. Explicit blur() first sends focus to the safe default,
 // so there's nothing left for the browser to reassign once Vue removes it.
+async function removeManualEdit(edit) {
+  try {
+    await deleteEdit(edit.edit_id)
+    proposedEdits.value = proposedEdits.value.filter((e) => e.edit_id !== edit.edit_id)
+    manualEditIds.delete(edit.edit_id)
+  } catch (err) {
+    error.value = err.message || 'Could not remove that area.'
+  }
+}
+
 async function saveRename(edit) {
   // Both the explicit blur() below (Enter/Esc) and a real click-away funnel
   // through this same @blur handler; the guard makes a second call a no-op
@@ -366,6 +388,31 @@ async function copySuggested() {
   await navigator.clipboard.writeText(redaction.suggested_caption)
   copied.value = true
   setTimeout(() => (copied.value = false), 1500)
+}
+
+const chatMessages = ref([])
+const chatInput = ref('')
+const chatLoading = ref(false)
+const chatError = ref(null)
+const chatExpanded = ref(false)
+
+async function sendChat(text) {
+  const message = (text ?? chatInput.value).trim()
+  if (!message || chatLoading.value) return
+
+  const history = chatMessages.value.slice()
+  chatMessages.value.push({ role: 'user', content: message })
+  chatInput.value = ''
+  chatError.value = null
+  chatLoading.value = true
+  try {
+    const { reply } = await sendTeachableMomentChat(props.draftId, message, history)
+    chatMessages.value.push({ role: 'assistant', content: reply })
+  } catch (err) {
+    chatError.value = "Couldn't get an answer — try again."
+  } finally {
+    chatLoading.value = false
+  }
 }
 </script>
 
@@ -420,28 +467,47 @@ async function copySuggested() {
             :disabled="confirmed"
             @change="toggleEdit(edit)"
           />
-          <input
-            v-if="renamingEditId === edit.edit_id"
-            v-model="renameDraft"
-            type="text"
-            class="form-control form-control-sm d-inline-block w-auto align-middle"
-            style="max-width: 220px"
-            maxlength="255"
-            autofocus
-            placeholder="Name this area"
-            @keyup.enter="$event.target.blur()"
-            @keyup.esc="cancelRename(); $event.target.blur()"
-            @blur="saveRename(edit)"
-          />
+          <template v-if="renamingEditId === edit.edit_id">
+            <input
+              v-model="renameDraft"
+              type="text"
+              class="form-control form-control-sm d-inline-block w-auto align-middle"
+              style="max-width: 180px"
+              maxlength="255"
+              autofocus
+              placeholder="Name this area"
+              @keyup.enter="$event.target.blur()"
+              @keyup.esc="cancelRename(); $event.target.blur()"
+              @blur="saveRename(edit)"
+            />
+            <button
+              type="button"
+              class="btn btn-link btn-sm p-0 ms-2 text-secondary"
+              style="font-size:0.78rem"
+              @mousedown.prevent="cancelRename()"
+            >
+              Cancel
+            </button>
+          </template>
           <label v-else class="form-check-label small fw-semibold" :for="edit.edit_id">
             {{ editLabel(edit) }}
             <button
               v-if="isManualEdit(edit) && !confirmed"
               type="button"
-              class="btn btn-link btn-sm p-0 ms-1 align-baseline"
+              class="rename-btn"
+              aria-label="Rename this area"
               @click.stop.prevent="startRename(edit)"
             >
-              rename
+              Edit
+            </button>
+            <button
+              v-if="isManualEdit(edit) && !confirmed"
+              type="button"
+              class="remove-btn"
+              aria-label="Remove this area"
+              @click.stop.prevent="removeManualEdit(edit)"
+            >
+              ×
             </button>
           </label>
         </div>
@@ -457,6 +523,31 @@ async function copySuggested() {
       </div>
 
       <p v-if="error" class="text-danger small">{{ error }}</p>
+
+      <div v-if="teachableMoment" class="coach-card mt-3">
+        <p class="eyebrow mb-1">Why this matters</p>
+        <p class="fw-semibold mb-1">{{ teachableMoment.title }}</p>
+        <p class="small mb-2">{{ teachableMoment.explanation }}</p>
+        <p class="small mb-0"><strong>Safer move:</strong> {{ teachableMoment.safer_action }}</p>
+
+        <div class="chat-section mt-3">
+          <button
+            type="button"
+            class="chat-expand-btn"
+            aria-label="Expand chat"
+            @click="chatExpanded = true"
+          >⤢</button>
+          <TeachableChatPanel
+            v-model="chatInput"
+            :messages="chatMessages"
+            :loading="chatLoading"
+            :error="chatError"
+            :discussion-prompt="teachableMoment.discussion_prompt"
+            :show-sim-suggestion="!!teachableMoment.category"
+            @send="sendChat"
+          />
+        </div>
+      </div>
     </div>
 
     <div class="app-action-bar">
@@ -480,6 +571,23 @@ async function copySuggested() {
         {{ cancelling ? 'Cancelling…' : 'Cancel this post' }}
       </button>
       <button class="btn btn-outline-secondary w-100" :disabled="cancelling" @click="emit('restart')">Back</button>
+    </div>
+
+    <div v-if="chatExpanded && teachableMoment" class="chat-fullscreen">
+      <div class="chat-fullscreen-header">
+        <button type="button" class="chat-back-btn" @click="chatExpanded = false">← Back</button>
+        <p class="chat-fullscreen-title mb-0">Ask a question</p>
+      </div>
+      <TeachableChatPanel
+        v-model="chatInput"
+        fullscreen
+        :messages="chatMessages"
+        :loading="chatLoading"
+        :error="chatError"
+        :discussion-prompt="teachableMoment.discussion_prompt"
+        :show-sim-suggestion="!!teachableMoment.category"
+        @send="sendChat"
+      />
     </div>
   </div>
 </template>
@@ -529,15 +637,108 @@ async function copySuggested() {
   background: #fff;
 }
 .fix-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 8px 0;
+  padding-left: 0 !important;
   border-top: 1px solid #eef2f7;
+}
+.fix-row .form-check-input {
+  float: none;
+  margin: 0;
+  flex-shrink: 0;
+  position: static;
+}
+.fix-row .form-check-label {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  margin-bottom: 0;
+  padding-left: 0;
+}
+.rename-btn {
+  border: none;
+  background: #eef0f3;
+  color: #6b7280;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 6px;
+  margin-left: 6px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.rename-btn:hover {
+  background: #e2e5ea;
+  color: #374151;
 }
 .fix-row:first-of-type {
   border-top: 0;
+}
+.remove-btn {
+  border: none;
+  background: none;
+  color: #9ca3af;
+  font-size: 1rem;
+  line-height: 1;
+  margin-left: auto;
+  padding: 0 2px;
+  cursor: pointer;
+}
+.remove-btn:hover {
+  color: #dc3545;
 }
 .suggested-caption {
   padding: 10px;
   border-radius: 12px;
   background: #f4fbf8;
+}
+.chat-section {
+  position: relative;
+  border-top: 1px solid var(--trace-line);
+  padding-top: 10px;
+}
+.chat-expand-btn {
+  position: absolute;
+  top: -4px;
+  right: 0;
+  background: none;
+  border: none;
+  font-size: 1.05rem;
+  line-height: 1;
+  color: #667085;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+.chat-fullscreen {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+}
+.chat-fullscreen-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--trace-line);
+}
+.chat-back-btn {
+  background: none;
+  border: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--trace-coral);
+  padding: 4px 0;
+  cursor: pointer;
+}
+.chat-fullscreen-title {
+  font-weight: 700;
+  font-size: 0.95rem;
 }
 </style>

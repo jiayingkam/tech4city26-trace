@@ -1,3 +1,4 @@
+const DETECT_MOSAIC_RISK_URL = import.meta.env.VITE_DETECT_MOSAIC_RISK_URL || 'http://localhost:5008'
 const UPLOAD_POST_URL = import.meta.env.VITE_UPLOAD_POST_URL || 'http://localhost:5014'
 const SCAN_DRAFT_URL = import.meta.env.VITE_SCAN_DRAFT_URL || 'http://localhost:5012'
 const DETECTIONS_URL = import.meta.env.VITE_DETECTIONS_URL || 'http://localhost:5003'
@@ -5,10 +6,12 @@ const EDITS_URL = import.meta.env.VITE_EDITS_URL || 'http://localhost:5004'
 const REMEDIATE_CONTENT_URL = import.meta.env.VITE_REMEDIATE_CONTENT_URL || 'http://localhost:5011'
 const QUARANTINE_HIGH_RISK_URL = import.meta.env.VITE_QUARANTINE_HIGH_RISK_URL || 'http://localhost:5010'
 const GENERATE_TEACHABLE_MOMENT_URL = import.meta.env.VITE_GENERATE_TEACHABLE_MOMENT_URL || 'http://localhost:5009'
+const TEACHABLE_MOMENT_CHAT_URL = import.meta.env.VITE_TEACHABLE_MOMENT_CHAT_URL || 'http://localhost:5017'
 const COMPILE_FAMILY_DIGEST_URL = import.meta.env.VITE_COMPILE_FAMILY_DIGEST_URL || 'http://localhost:5007'
 const UPDATE_EXPOSURE_PROFILE_URL = import.meta.env.VITE_UPDATE_EXPOSURE_PROFILE_URL || 'http://localhost:5013'
 const USERS_URL = import.meta.env.VITE_USERS_URL || 'http://localhost:5001'
 const MANAGE_HISTORY_URL = import.meta.env.VITE_MANAGE_HISTORY_URL || 'http://localhost:5015'
+const UPDATE_EXPOSURE_PROFILE_URL = import.meta.env.VITE_UPDATE_EXPOSURE_PROFILE_URL || 'http://localhost:5013'
 
 // sessionStorage (not localStorage) so the token disappears when the tab
 // closes, rather than lingering on the device indefinitely — the closest
@@ -135,23 +138,6 @@ export async function getTeachableMoment(draftId, onRetry) {
   return parseOrThrow(res)
 }
 
-export async function updateExposureProfile(onRetry) {
-  const res = await fetchWithRetry(`${UPDATE_EXPOSURE_PROFILE_URL}/exposure-profiles/update`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
-  }, { onRetry })
-  return parseOrThrow(res)
-}
-
-export async function generateWeeklyDigest(onRetry) {
-  await updateExposureProfile(onRetry)
-  const res = await fetchWithRetry(`${COMPILE_FAMILY_DIGEST_URL}/digest/generate`, {
-    method: 'POST',
-  }, { onRetry })
-  return parseOrThrow(res)
-}
-
 export async function confirmRemediation(draftId) {
   const res = await fetchWithRetry(`${REMEDIATE_CONTENT_URL}/drafts/${draftId}/remediate/confirm`, { method: 'POST' })
   return parseOrThrow(res)
@@ -171,7 +157,7 @@ export async function resumeRemediation(draftId) {
 // leaving it stuck pending forever if they just navigate away.
 export async function cancelRemediation(draftId) {
   const res = await fetchWithRetry(`${REMEDIATE_CONTENT_URL}/drafts/${draftId}/remediate/cancel`, { method: 'POST' })
-  return parseOrThrow(res)
+  if (!res.ok) return parseOrThrow(res)
 }
 
 export function downloadUrl(draftId) {
@@ -251,6 +237,11 @@ export async function addManualEdit(draftId, region) {
 
 // Renames a self-marked area by updating the underlying Detection's detail
 // (the one-line description RemediationView shows next to its checkbox).
+export async function deleteEdit(editId) {
+  const res = await fetchWithRetry(`${EDITS_URL}/edits/${editId}`, { method: 'DELETE' })
+  if (!res.ok) return parseOrThrow(res)
+}
+
 export async function renameDetection(detectionId, detail) {
   const res = await fetchWithRetry(`${DETECTIONS_URL}/detections/${detectionId}`, {
     method: 'PATCH',
@@ -325,6 +316,46 @@ export async function deleteHistoryItems({ draftIds = [], detectionIds = [], qua
 // behind the same auth gate as everything else, so — same reasoning as
 // downloadRemediated — this can't just be a plain <img src>; it has to be a
 // real fetch with the token attached, turned into a local blob URL.
+export async function getMosaicRisk(ownerId, draftId) {
+  const res = await fetchWithRetry(`${DETECT_MOSAIC_RISK_URL}/users/${ownerId}/mosaic-risk`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ draft_id: draftId }),
+  })
+  return parseOrThrow(res)
+}
+
+export async function getMosaicTrajectory(ownerId, onRetry) {
+  const res = await fetchWithRetry(
+    `${DETECT_MOSAIC_RISK_URL}/users/${ownerId}/mosaic-trajectory`,
+    undefined,
+    { onRetry },
+  )
+  return parseOrThrow(res)
+}
+
+export async function getStrangerProfile(ownerId, onRetry) {
+  const res = await fetchWithRetry(
+    `${DETECT_MOSAIC_RISK_URL}/users/${ownerId}/stranger-profile`,
+    undefined,
+    { onRetry },
+  )
+  return parseOrThrow(res)
+}
+
+// Reads the materialized exposure profile (trajectory + stranger + score, all in
+// one blob) from update_exposure_profile, which serves the stored copy and only
+// recomputes on a cache miss. Returns the inner profile object, or null if empty.
+export async function getExposureProfile(ownerId, onRetry) {
+  const res = await fetchWithRetry(
+    `${UPDATE_EXPOSURE_PROFILE_URL}/users/${ownerId}/profile`,
+    undefined,
+    { onRetry },
+  )
+  const data = await parseOrThrow(res)
+  return data.profile || null
+}
+
 export async function getDraftThumbnail(draftId) {
   const res = await fetchWithRetry(`${UPLOAD_POST_URL}/drafts/${draftId}/original`)
   if (!res.ok) return null

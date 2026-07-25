@@ -6,6 +6,7 @@ import requests
 from flask import Blueprint, request, jsonify, send_file
 from PIL import Image, ImageFilter
 
+from flask_jwt_extended import get_jwt_identity
 from trace_auth import forwarded_auth_headers
 import trace_storage
 from .text_redaction import redact_caption
@@ -16,6 +17,27 @@ CONTENT_DRAFTS_SERVICE_URL = os.environ.get("CONTENT_DRAFTS_SERVICE_URL", "http:
 DETECTIONS_SERVICE_URL = os.environ.get("DETECTIONS_SERVICE_URL", "http://DETECTIONS:5003")
 EDITS_SERVICE_URL = os.environ.get("EDITS_SERVICE_URL", "http://EDITS:5004")
 UPLOAD_POST_SERVICE_URL = os.environ.get("UPLOAD_POST_SERVICE_URL", "http://UPLOAD_POST:5014")
+UPDATE_EXPOSURE_PROFILE_SERVICE_URL = os.environ.get(
+    "UPDATE_EXPOSURE_PROFILE_SERVICE_URL", "http://update_exposure_profile:5013"
+)
+
+
+def _invalidate_exposure_profile():
+    """Best-effort: drop the caller's cached exposure profile after their post
+    history changed, so their next Privacy Risk view rebuilds it fresh. Never
+    blocks or fails the remediation action — a stale profile self-heals on the
+    next read-miss anyway."""
+    owner_id = get_jwt_identity()
+    if not owner_id:
+        return
+    try:
+        requests.delete(
+            f"{UPDATE_EXPOSURE_PROFILE_SERVICE_URL}/users/{owner_id}/profile",
+            headers=forwarded_auth_headers(request),
+            timeout=3,
+        )
+    except requests.RequestException:
+        pass
 
 
 def _set_detection_resolution(detection_id, resolution, auth_headers):
@@ -194,8 +216,13 @@ def remediate_content(draft_id):
                         type: string
                       detail:
                         type: string
+            video_findings_reviewed:
+              type: array
+              description: detection_ids of video-source findings (faces, on-screen text) resolved by this call. There's no pixel/frame remediation pipeline for video yet, so these are marked reviewed immediately instead of becoming a proposed edit.
+              items:
+                type: string
       400:
-        description: The draft has no unresolved detections, has image detections but no stored file, or none of its detections could be turned into a proposed edit or caption suggestion.
+        description: The draft has no unresolved detections, has image detections but no stored file, or none of its detections could be turned into a proposed edit, caption suggestion, or reviewed video finding.
       404:
         description: No draft with that id exists.
       502:
@@ -221,7 +248,13 @@ def remediate_content(draft_id):
     # instead of falling through to "no bounding_region -> metadata_strip",
     # which would create a bogus image edit for a detection with no image.
     text_detections = [d for d in detections if d.get("source_type") == "text"]
-    image_detections = [d for d in detections if d.get("source_type") != "text"]
+    image_detections = [d for d in detections if d.get("source_type") == "image"]
+    # Video findings (faces, on-screen text) are report-only for now — there's
+    # no pixel/frame remediation pipeline yet, so these can't become a "blur"
+    # edit the way image detections do (confirm would eventually try to
+    # Image.open() the video file and crash). Resolved directly below instead
+    # of routed through the edit-proposal flow.
+    video_detections = [d for d in detections if d.get("source_type") == "video"]
 
     # only fetch the draft if there's actually image or text work to do
     draft = None
@@ -318,7 +351,15 @@ def remediate_content(draft_id):
             ],
         }
 
-    if not proposed and not text_redaction:
+    # 4. video findings have no editable action yet (see video_detections'
+    # definition above) — surfacing them in a report is the whole remedy for
+    # now, so they're resolved the moment that report is generated rather
+    # than left pending for a confirm step that will never come.
+    video_reviewed = [d["detection_id"] for d in video_detections]
+    for detection_id in video_reviewed:
+        _set_detection_resolution(detection_id, "accepted", auth_headers)
+
+    if not proposed and not text_redaction and not video_reviewed:
         return jsonify({"error": "nothing to remediate"}), 400
 
     return jsonify({
@@ -326,6 +367,7 @@ def remediate_content(draft_id):
         "original": f"/{original_path}" if original_path else None,
         "proposed_edits": proposed,
         "text_redaction": text_redaction,
+        "video_findings_reviewed": video_reviewed,
     }), 200
 
 
@@ -378,7 +420,11 @@ def confirm_remediation(draft_id):
     # unresolved flag — resolve their detections too, so confirming doesn't
     # leave the post stuck at "pending" in History forever.
     skipped = [e for e in all_edits if e["status"] == "reverted"]
-    if not pending and not skipped:
+    # edits already applied from a previous confirm that was interrupted before
+    # text-detection resolutions were set — allow re-confirming so those
+    # unresolved detections get cleaned up and the post leaves "pending".
+    already_applied = [e for e in all_edits if e["status"] == "applied"]
+    if not pending and not skipped and not already_applied:
         return jsonify({"error": "no pending edits to confirm"}), 400
 
     confirmed = []
@@ -397,12 +443,31 @@ def confirm_remediation(draft_id):
     for e in skipped:
         _set_detection_resolution(e.get("detection_id"), "rejected", auth_headers)
 
+    for e in already_applied:
+        _set_detection_resolution(e.get("detection_id"), "accepted", auth_headers)
+
+    # Text-source detections never get edit records (they get a caption
+    # suggestion instead), so the loop above never touches them — resolve
+    # them here so the post doesn't stay "pending" in History forever.
+    det_resp = requests.get(
+        f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections", headers=auth_headers
+    )
+    if det_resp.status_code == 200:
+        edit_detection_ids = {e.get("detection_id") for e in all_edits}
+        for d in det_resp.json():
+            if d.get("detection_id") not in edit_detection_ids:
+                _set_detection_resolution(d.get("detection_id"), "accepted", auth_headers)
+
     # rebuild from the original using every currently-applied edit, not just
     # the ones confirmed this call, so repeated confirm/revert/restore cycles
     # always produce a file consistent with the edits' current state
     _, error = _regenerate_output(draft_id)
     if error:
         return error
+
+    # Post just became published (resolutions set) — its cumulative privacy
+    # footprint changed, so drop the cached profile.
+    _invalidate_exposure_profile()
 
     return jsonify({
         "draft_id": draft_id,
@@ -446,6 +511,9 @@ def cancel_remediation(draft_id):
     for d in resp.json():
         if d.get("resolution") is None:
             _set_detection_resolution(d["detection_id"], "rejected", auth_headers)
+    # Cancelled post now counts as a "privacy save" instead of a publish —
+    # the footprint changed, so drop the cached profile.
+    _invalidate_exposure_profile()
     return jsonify({"draft_id": draft_id, "status": "rejected"}), 200
 
 
@@ -578,6 +646,10 @@ def revert_edit(edit_id):
         _, error = _regenerate_output(edit["draft_id"])
         if error:
             return error
+
+    # Un-resolving a detection can push a post back to pending, changing what
+    # counts toward the footprint — drop the cached profile.
+    _invalidate_exposure_profile()
 
     return jsonify(patch_resp.json()), 200
 

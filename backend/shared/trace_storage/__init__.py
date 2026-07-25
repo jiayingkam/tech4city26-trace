@@ -43,3 +43,11 @@ def delete_blob(blob_name):
         _bucket().blob(blob_name).delete()
     except NotFound:
         pass
+
+
+def gcs_uri(blob_name):
+    """Returns the gs:// URI for a blob, without downloading it — used by
+    scan_video to hand Cloud Video Intelligence a reference it reads
+    directly from GCS, instead of shipping the (potentially large) video's
+    bytes through this service first."""
+    return f"gs://{environ['GCS_BUCKET']}/{blob_name}"
