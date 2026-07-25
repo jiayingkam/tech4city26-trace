@@ -22,6 +22,9 @@ def create_app() -> Flask:
         swag = swagger(app)                                  # scans all your route docstrings → builds a dict
         swag["info"]["version"] = "1.0"                     # fills in required fields in that dict
         swag["info"]["title"] = "Compile Family Digest"
+        swag["securityDefinitions"] = {
+            "BearerAuth": {"type": "apiKey", "name": "Authorization", "in": "header"}
+        }
         return jsonify(swag)                                 # returns that dict as JSON at /swagger
 
     swaggerui_bp = get_swaggerui_blueprint(
