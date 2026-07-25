@@ -18,6 +18,7 @@ import { quickTeachTips } from './content/loadQuickTeach'
 // around (sessionStorage, so a closed tab always lands back on login).
 const step = ref(getToken() ? 1 : 0)
 const photoPreviewUrl = ref(null)
+const postCaption = ref('')
 const detections = ref([])
 const draftId = ref(null)
 const contentType = ref('image')
@@ -70,6 +71,7 @@ async function handleShare(payload) {
   startQuickTeach()
   if (photoPreviewUrl.value) URL.revokeObjectURL(photoPreviewUrl.value)
   photoPreviewUrl.value = URL.createObjectURL(payload.photoFile)
+  postCaption.value = payload.caption
 
   try {
     contentType.value = payload.contentType
@@ -132,6 +134,7 @@ function restart() {
   step.value = 1
   if (photoPreviewUrl.value) URL.revokeObjectURL(photoPreviewUrl.value)
   photoPreviewUrl.value = null
+  postCaption.value = ''
   detections.value = []
   draftId.value = null
   contentType.value = 'image'
@@ -310,6 +313,7 @@ onUnmounted(stopQuickTeach)
         v-else-if="step === 4 && scanOutcome?.outcome === 'quarantined'"
         :quarantine="scanOutcome.quarantine"
         :photo-url="photoPreviewUrl"
+        :caption="postCaption"
         @restart="restart"
         @edit="handleQuarantineEdit"
       />

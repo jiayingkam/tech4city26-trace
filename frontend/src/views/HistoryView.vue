@@ -365,6 +365,7 @@ function cooldownRemaining(post) {
     v-if="subScreen === 'quarantine'"
     :quarantine="activePost"
     :photo-url="thumbnails[activePost.draft_id]"
+    :caption="activePost.caption"
     @restart="closeSubScreen"
     @edit="handleQuarantineEdit"
   />
