@@ -11,7 +11,6 @@ const COMPILE_FAMILY_DIGEST_URL = import.meta.env.VITE_COMPILE_FAMILY_DIGEST_URL
 const UPDATE_EXPOSURE_PROFILE_URL = import.meta.env.VITE_UPDATE_EXPOSURE_PROFILE_URL || 'http://localhost:5013'
 const USERS_URL = import.meta.env.VITE_USERS_URL || 'http://localhost:5001'
 const MANAGE_HISTORY_URL = import.meta.env.VITE_MANAGE_HISTORY_URL || 'http://localhost:5015'
-const UPDATE_EXPOSURE_PROFILE_URL = import.meta.env.VITE_UPDATE_EXPOSURE_PROFILE_URL || 'http://localhost:5013'
 
 // sessionStorage (not localStorage) so the token disappears when the tab
 // closes, rather than lingering on the device indefinitely — the closest
@@ -133,6 +132,32 @@ export async function getDetections(draftId, onRetry) {
 
 export async function getTeachableMoment(draftId, onRetry) {
   const res = await fetchWithRetry(`${GENERATE_TEACHABLE_MOMENT_URL}/drafts/${draftId}/teachable-moment`, {
+    method: 'POST',
+  }, { onRetry })
+  return parseOrThrow(res)
+}
+
+export async function sendTeachableMomentChat(draftId, message, history = [], onRetry) {
+  const res = await fetchWithRetry(`${TEACHABLE_MOMENT_CHAT_URL}/drafts/${draftId}/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, history }),
+  }, { onRetry })
+  return parseOrThrow(res)
+}
+
+export async function updateExposureProfile(onRetry) {
+  const res = await fetchWithRetry(`${UPDATE_EXPOSURE_PROFILE_URL}/exposure-profiles/update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  }, { onRetry })
+  return parseOrThrow(res)
+}
+
+export async function generateWeeklyDigest(onRetry) {
+  await updateExposureProfile(onRetry)
+  const res = await fetchWithRetry(`${COMPILE_FAMILY_DIGEST_URL}/digest/generate`, {
     method: 'POST',
   }, { onRetry })
   return parseOrThrow(res)

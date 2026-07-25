@@ -1,6 +1,10 @@
 import os
+import re
+from datetime import datetime, timedelta, timezone
+
 import requests
 from flask import Blueprint, jsonify, request
+from flask_jwt_extended import get_jwt_identity
 from trace_auth import forwarded_auth_headers
 
 bp = Blueprint("update_exposure_profile", __name__)
@@ -11,6 +15,152 @@ DETECT_MOSAIC_RISK_URL = os.environ.get(
 EXPOSURE_PROFILES_URL = os.environ.get(
     "EXPOSURE_PROFILES_SERVICE_URL", "http://exposure_profiles:5005"
 )
+CONTENT_DRAFTS_SERVICE_URL = os.environ.get(
+    "CONTENT_DRAFTS_SERVICE_URL", "http://content_drafts:5002"
+)
+DETECTIONS_SERVICE_URL = os.environ.get(
+    "DETECTIONS_SERVICE_URL", "http://detections:5003"
+)
+CATEGORIES = ("face", "location", "document", "metadata", "contact", "financial")
+MAX_WEEKLY_FINDINGS = 5
+
+
+def _iso(dt):
+    return dt.isoformat().replace("+00:00", "Z")
+
+
+def _as_utc(dt):
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _parse_datetime(value, field):
+    if not value:
+        return None, None
+    try:
+        return _as_utc(datetime.fromisoformat(value.replace("Z", "+00:00"))), None
+    except ValueError:
+        return None, (jsonify({"error": f"{field} must be an ISO datetime"}), 400)
+
+
+def _window_from_request():
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return None, None, (jsonify({"error": "request body must be a JSON object"}), 400)
+
+    window_end, error = _parse_datetime(data.get("window_end"), "window_end")
+    if error:
+        return None, None, error
+    window_start, error = _parse_datetime(data.get("window_start"), "window_start")
+    if error:
+        return None, None, error
+
+    window_end = window_end or datetime.now(timezone.utc)
+    window_start = window_start or (window_end - timedelta(days=7))
+    if window_start >= window_end:
+        return None, None, (jsonify({"error": "window_start must be before window_end"}), 400)
+    return window_start, window_end, None
+
+
+def _parse_created_at(detection):
+    value = detection.get("created_at")
+    if not value:
+        return None
+    try:
+        return _as_utc(datetime.fromisoformat(value.replace("Z", "+00:00")))
+    except ValueError:
+        return None
+
+
+def _sanitize_finding_detail(detail):
+    if not detail:
+        return None
+    cleaned = re.sub(r"[\w.+-]+@[\w-]+\.[\w.-]+", "[email hidden]", str(detail))
+    cleaned = re.sub(r"\b(?:\+?\d[\d\s().-]{5,}\d)\b", "[number hidden]", cleaned)
+    cleaned = " ".join(cleaned.split())
+    return cleaned[:117] + "..." if len(cleaned) > 120 else cleaned
+
+
+def _weekly_finding_from_detection(detection):
+    detail = _sanitize_finding_detail(detection.get("detail"))
+    finding = {
+        "category": detection.get("category"),
+        "source_type": detection.get("source_type"),
+        "exposure_score": int(detection.get("exposure_score", 0) or 0),
+    }
+    if detail:
+        finding["detail"] = detail
+    return finding
+
+
+def _fetch_user_detections(user_id, headers):
+    drafts_resp = requests.get(
+        f"{CONTENT_DRAFTS_SERVICE_URL}/users/{user_id}/drafts",
+        headers=headers,
+    )
+    if drafts_resp.status_code != 200:
+        return None, (jsonify({"error": "failed to fetch drafts"}), 502)
+
+    detections = []
+    for draft in drafts_resp.json():
+        draft_id = draft.get("draft_id")
+        if not draft_id:
+            continue
+        detections_resp = requests.get(
+            f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections",
+            headers=headers,
+        )
+        if detections_resp.status_code != 200:
+            return None, (jsonify({"error": "failed to fetch detections"}), 502)
+        detections.extend(detections_resp.json())
+
+    return detections, None
+
+
+def _build_weekly_digest_profile(detections, window_start, window_end):
+    breakdown = {category: 0 for category in CATEGORIES}
+    risk_points = 0
+    findings = []
+
+    for detection in detections:
+        created_at = _parse_created_at(detection)
+        if created_at is None or not (window_start <= created_at < window_end):
+            continue
+        category = detection.get("category")
+        if category not in breakdown:
+            continue
+        breakdown[category] += 1
+        risk_points += int(detection.get("exposure_score", 0) or 0)
+        findings.append(_weekly_finding_from_detection(detection))
+
+    findings.sort(key=lambda item: item.get("exposure_score", 0), reverse=True)
+
+    return {
+        "window_start": _iso(window_start),
+        "window_end": _iso(window_end),
+        "total_flags": sum(breakdown.values()),
+        "category_breakdown": breakdown,
+        "privacy_health_score": max(0, 100 - min(100, risk_points * 5)),
+        "specific_findings": findings[:MAX_WEEKLY_FINDINGS],
+    }
+
+
+def _read_stored_profile(user_id, headers):
+    resp = requests.get(f"{EXPOSURE_PROFILES_URL}/users/{user_id}/profile", headers=headers)
+    if resp.status_code == 404:
+        return {}
+    if resp.status_code != 200:
+        return None
+    return resp.json().get("profile") or {}
+
+
+def _store_merged_profile(user_id, profile, headers):
+    return requests.put(
+        f"{EXPOSURE_PROFILES_URL}/users/{user_id}/profile",
+        json={"profile": profile},
+        headers=headers,
+    )
 
 
 def _compute_profile(user_id, headers):
@@ -51,6 +201,46 @@ def _rebuild_and_store(user_id, headers):
     if store.status_code != 200:
         return {"error": "failed to store profile"}, 502
     return store.json(), 200
+
+
+@bp.post("/exposure-profiles/update")
+def update_digest_profile():
+    """Compute the caller's trailing-seven-day digest aggregate and store it.
+    This preserves the main branch's materialized mosaic profile while adding a
+    weekly_digest aggregate section for the on-demand email flow.
+    ---
+    tags:
+      - Update Exposure Profile
+    security:
+      - BearerAuth: []
+    responses:
+      200:
+        description: Stored profile with weekly_digest updated.
+      400:
+        description: Request body or datetime window is invalid.
+      502:
+        description: Failed to fetch or store downstream data.
+    """
+    user_id = get_jwt_identity()
+    window_start, window_end, error = _window_from_request()
+    if error:
+        return error
+
+    headers = forwarded_auth_headers(request)
+    detections, error = _fetch_user_detections(user_id, headers)
+    if error:
+        return error
+
+    stored_profile = _read_stored_profile(user_id, headers)
+    if stored_profile is None:
+        return jsonify({"error": "failed to fetch stored profile"}), 502
+
+    weekly_digest = _build_weekly_digest_profile(detections, window_start, window_end)
+    stored_profile["weekly_digest"] = weekly_digest
+    store = _store_merged_profile(user_id, stored_profile, headers)
+    if store.status_code != 200:
+        return jsonify({"error": "failed to store profile"}), 502
+    return jsonify(store.json()), 200
 
 
 @bp.post("/users/<user_id>/rebuild")
