@@ -24,6 +24,7 @@ const strangerInferences = ref(_getCache()?.stranger?.inferences || [])
 const strangerConfidence = ref(_getCache()?.stranger?.overall_confidence || 0)
 const loading = ref(!_getCache())
 const error = ref(null)
+const expandedDraftId = ref(null)
 
 const TYPE_TIPS = {
   location: {
@@ -115,6 +116,21 @@ function riskBadgeClass(level) {
   return 'badge bg-success'
 }
 
+function togglePost(draftId) {
+  expandedDraftId.value = expandedDraftId.value === draftId ? null : draftId
+}
+
+function formatCapturedAt(value) {
+  if (!value) return 'Unknown time'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Unknown time'
+  return date.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
 function applyCache(data) {
   trajectory.value = data.trajectory || []
   finalK.value = data.final_k
@@ -155,7 +171,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="app-screen">
+  <div class="app-screen mosaic-screen">
 
     <div class="app-header">
       <HamburgerMenu @history="$emit('history')" @settings="$emit('settings')" @mosaic="$emit('mosaic')" @logout="$emit('logout')" />
@@ -178,10 +194,10 @@ onMounted(load)
         <p class="text-secondary small">No published posts to analyse yet.</p>
       </div>
 
-      <div v-else class="d-flex flex-column gap-3">
+      <div v-else class="d-flex flex-column gap-3 mosaic-stack">
 
         <!-- Score gauge -->
-        <div class="d-flex flex-column align-items-center gap-1 pt-2 pb-1">
+        <div class="d-flex flex-column align-items-center gap-1 pt-2 pb-1 score-panel">
           <div class="score-wrap">
             <svg viewBox="0 0 120 120" class="score-svg">
               <circle cx="60" cy="60" r="48" fill="none" stroke="#e8edf5" stroke-width="10" stroke-linecap="round" />
@@ -224,7 +240,7 @@ onMounted(load)
 
         <!-- What a stranger learns -->
         <div v-if="strangerInferences.length" class="stranger-card p-3 rounded-3">
-          <div class="d-flex align-items-center justify-content-between mb-1">
+          <div class="d-flex align-items-center justify-content-between mb-1 stranger-head">
             <p class="mb-0 small fw-bold stranger-title">🕵️ What a stranger could learn</p>
             <span class="stranger-conf">{{ strangerConfidence }}% confident</span>
           </div>
@@ -232,7 +248,7 @@ onMounted(load)
           <div v-for="(inf, i) in strangerInferences" :key="i" class="stranger-row">
             <span class="stranger-dot" :class="`conf--${inf.confidence}`"></span>
             <div class="flex-grow-1">
-              <p class="mb-0 small">{{ inf.statement }}</p>
+              <p class="mb-0 small stranger-statement">{{ inf.statement }}</p>
               <p class="mb-0 stranger-cite">from {{ inf.based_on.join(' · ') }}</p>
             </div>
             <span class="stranger-conf-tag" :class="`conf--${inf.confidence}`">{{ inf.confidence }}</span>
@@ -274,18 +290,31 @@ onMounted(load)
           <div
             v-for="(point, i) in trajectory"
             :key="point.draft_id"
-            class="post-row d-flex align-items-start gap-2 p-2 rounded-3"
+            class="post-card rounded-3"
           >
-            <span class="post-num text-secondary small">{{ i + 1 }}</span>
-            <div class="flex-grow-1 min-w-0">
-              <p class="mb-0 small text-truncate">{{ point.text_content || '(image only)' }}</p>
-              <p class="mb-0 x-small text-secondary">{{ formatOneIn(point.k_after) }} people could match you after this post</p>
-            </div>
-            <div class="d-flex flex-column align-items-end gap-1">
-              <span :class="riskBadgeClass(point.risk_level)" style="font-size:0.7rem;white-space:nowrap">
-                {{ point.risk_level }}
+            <button
+              type="button"
+              class="post-toggle"
+              :aria-expanded="expandedDraftId === point.draft_id"
+              @click="togglePost(point.draft_id)"
+            >
+              <span class="post-num-shell">
+                <span class="post-num text-secondary small ">{{ i + 1 }}</span>
               </span>
-              <span v-if="point.cleaned" class="cleaned-badge">cleaned</span>
+              <span class="post-toggle-caption">{{ point.text_content || '(image only)' }}</span>
+              <span class="post-chevron" :class="{ 'is-open': expandedDraftId === point.draft_id }" aria-hidden="true">⌄</span>
+            </button>
+
+            <div v-if="expandedDraftId === point.draft_id" class="post-details">
+              <p class="mb-0 x-small text-secondary">{{ formatOneIn(point.k_after) }} people could match you after this post</p>
+              <div class="post-detail-row">
+                <span :class="riskBadgeClass(point.risk_level)" style="font-size:0.7rem;white-space:nowrap">
+                  {{ point.risk_level }}
+                </span>
+                <span v-if="point.cleaned" class="cleaned-badge">cleaned</span>
+                <span class="x-small text-secondary">{{ formatCapturedAt(point.captured_at) }}</span>
+                <span class="x-small text-secondary">+{{ point.delta_bits }} bits</span>
+              </div>
             </div>
           </div>
         </div>
@@ -294,7 +323,7 @@ onMounted(load)
     </div>
 
     <div class="app-action-bar">
-      <button class="btn btn-outline-secondary w-100" @click="refresh">Refresh</button>
+      <button class="btn btn-primary w-100" @click="refresh">Refresh</button>
       <button class="btn btn-outline-secondary w-100" @click="$emit('back')">Back</button>
     </div>
 
@@ -302,6 +331,27 @@ onMounted(load)
 </template>
 
 <style scoped>
+.mosaic-screen {
+  background:
+    radial-gradient(circle at 18% 0%, rgba(47, 111, 237, 0.08), transparent 38%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.98));
+}
+
+.mosaic-screen .app-content {
+  padding: 14px;
+}
+
+.mosaic-stack {
+  padding-bottom: 4px;
+}
+
+.score-panel {
+  border: 1px solid var(--trace-line, #e8edf5);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff, #f8fbff);
+  padding: 10px 12px 12px;
+}
+
 .score-wrap {
   position: relative;
   width: 140px;
@@ -351,9 +401,77 @@ onMounted(load)
   background: #fafbfc;
   border: 1px solid var(--trace-line, #e8edf5);
 }
+.post-card {
+  background: #fafbfc;
+  border: 1px solid var(--trace-line, #e8edf5);
+  overflow: hidden;
+}
+.post-toggle {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  text-align: left;
+}
+.post-toggle:hover {
+  background: #f2f6fc;
+}
+.post-num-shell {
+  align-self: stretch;
+  min-width: 42px;
+  display: grid;
+  place-items: center;
+  border-right: 1px solid #d7e2f1;
+  background: linear-gradient(180deg, #eaf2ff, #f5f9ff);
+}
+.post-toggle[aria-expanded='true'] .post-num-shell {
+  background: linear-gradient(180deg, #dde9ff, #eef5ff);
+}
+.post-toggle-caption {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 10px 10px 11px;
+  font-size: 0.85rem;
+  line-height: 1.3;
+  color: var(--trace-ink);
+  font-weight: 600;
+  display: -webkit-box;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.post-chevron {
+  margin-right: 10px;
+  color: #6b7280;
+  font-size: 0.95rem;
+  line-height: 1;
+  transition: transform 0.2s ease;
+}
+.post-chevron.is-open {
+  transform: rotate(180deg);
+}
+.post-details {
+  border-top: 1px solid var(--trace-line, #e8edf5);
+  padding: 9px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.post-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
 .post-num {
+  display: block;
   min-width: 18px;
-  text-align: right;
+  text-align: center;
+  font-weight: 1000;
 }
 .x-small {
   font-size: 0.72rem;
@@ -415,6 +533,9 @@ onMounted(load)
 .stranger-sub {
   color: #aeb4c6;
 }
+.stranger-head {
+  gap: 8px;
+}
 .stranger-conf {
   font-size: 0.68rem;
   font-weight: 700;
@@ -430,6 +551,9 @@ onMounted(load)
   gap: 8px;
   padding: 7px 0;
   border-top: 1px solid #2c3145;
+}
+.stranger-statement {
+  line-height: 1.35;
 }
 .stranger-row .small {
   color: #f2f4f8;
@@ -453,7 +577,8 @@ onMounted(load)
   padding: 1px 6px;
   border-radius: 999px;
   white-space: nowrap;
-  align-self: center;
+  align-self: flex-start;
+  margin-top: 1px;
 }
 .conf--high  { background: #d94841; color: #fff; }
 .conf--medium { background: #f4b740; color: #3a2c00; }
@@ -461,4 +586,24 @@ onMounted(load)
 .stranger-dot.conf--high  { background: #ff6b63; }
 .stranger-dot.conf--medium { background: #f4b740; }
 .stranger-dot.conf--low   { background: #7a8199; }
+
+.post-caption {
+  display: -webkit-box;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.3;
+}
+
+@media (max-width: 520px) {
+  .stranger-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .score-num {
+    font-size: 2.4rem;
+  }
+}
 </style>
