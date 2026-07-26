@@ -1,6 +1,8 @@
 import json
 from datetime import datetime, timezone
 from .db import db
+import uuid
+from datetime import datetime, timezone
 
 
 class ExposureProfile(db.Model):

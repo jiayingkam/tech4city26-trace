@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import HamburgerMenu from '../components/HamburgerMenu.vue'
-import { updateRetentionMode } from '../api'
+import { generateWeeklyDigest, updateRetentionMode } from '../api'
 
 const props = defineProps({
   user: { type: Object, required: true },
@@ -12,6 +12,9 @@ const retentionMode = ref(props.user.retention_mode)
 const saving = ref(false)
 const error = ref('')
 const saved = ref(false)
+const digestSending = ref(false)
+const digestMessage = ref('')
+const digestError = ref('')
 
 async function save() {
   saving.value = true
@@ -25,6 +28,20 @@ async function save() {
     error.value = err.message || 'Could not save your settings.'
   } finally {
     saving.value = false
+  }
+}
+
+async function sendDigest() {
+  digestSending.value = true
+  digestMessage.value = ''
+  digestError.value = ''
+  try {
+    const result = await generateWeeklyDigest()
+    digestMessage.value = `Report sent to ${result.email || props.user.email}.`
+  } catch (err) {
+    digestError.value = err.message || 'Could not send your report.'
+  } finally {
+    digestSending.value = false
   }
 }
 </script>
@@ -77,6 +94,21 @@ async function save() {
 
       <p v-if="saved" class="text-success small mb-2">Saved.</p>
       <p v-if="error" class="text-danger small mb-2">{{ error }}</p>
+
+      <div class="settings-divider" aria-hidden="true"></div>
+
+      <p class="fw-bold small mb-3">Weekly report</p>
+      <div class="settings-report">
+        <div>
+          <span class="d-block fw-semibold">This week's Trace report</span>
+          <span class="d-block text-muted small">{{ user.email }}</span>
+        </div>
+        <button class="btn btn-outline-primary btn-sm" :disabled="digestSending" @click="sendDigest">
+          {{ digestSending ? 'Sending…' : 'Generate' }}
+        </button>
+      </div>
+      <p v-if="digestMessage" class="text-success small mb-2">{{ digestMessage }}</p>
+      <p v-if="digestError" class="text-danger small mb-2">{{ digestError }}</p>
     </div>
 
     <div class="app-action-bar">
@@ -100,5 +132,25 @@ async function save() {
 }
 .settings-option .form-check-input {
   margin-left: 0;
+}
+.settings-divider {
+  height: 1px;
+  margin: 18px 0;
+  background: var(--trace-line);
+}
+.settings-report {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--trace-line);
+  border-radius: 14px;
+  background: #fff;
+}
+.settings-report .btn {
+  flex: 0 0 auto;
+  min-width: 92px;
 }
 </style>
