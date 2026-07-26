@@ -38,7 +38,16 @@ defineEmits(['update:modelValue', 'send'])
         class="chat-bubble"
         :class="m.role === 'user' ? 'chat-bubble--user' : 'chat-bubble--coach'"
       >{{ m.content }}</div>
-      <div v-if="loading" class="chat-bubble chat-bubble--coach chat-bubble--typing">···</div>
+      <div
+        v-if="loading"
+        class="chat-bubble chat-bubble--coach chat-bubble--typing"
+        role="status"
+        aria-label="Coach is typing"
+      >
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+      </div>
     </div>
 
     <p v-if="error" class="chat-error small mb-2">{{ error }}</p>
@@ -115,8 +124,27 @@ defineEmits(['update:modelValue', 'send'])
   color: #172235;
 }
 .chat-bubble--typing {
-  font-weight: 700;
-  letter-spacing: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 12px;
+}
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #98a2b3;
+  animation: typing-bounce 1.2s infinite ease-in-out;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.15s; }
+.typing-dot:nth-child(3) { animation-delay: 0.3s; }
+@keyframes typing-bounce {
+  0%, 70%, 100% { transform: translateY(0); opacity: 0.35; }
+  35% { transform: translateY(-4px); opacity: 1; }
+}
+/* Respect users who prefer no motion — show steady dots instead */
+@media (prefers-reduced-motion: reduce) {
+  .typing-dot { animation: none; opacity: 0.6; }
 }
 .chat-error {
   color: #d94841;
