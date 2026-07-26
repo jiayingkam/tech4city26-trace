@@ -61,24 +61,37 @@ function calcScore(k) {
   return Math.round(Math.log2(Math.max(k, 1)) / Math.log2(K_MAX) * 100)
 }
 
+// Score band → colour, shared by the gauge and the per-post breakdown.
+function bandColor(s) {
+  if (s >= 70) return '#198c68'
+  if (s >= 40) return '#f4b740'
+  return '#d94841'
+}
+
+// Per-post score, with the same behaviour factor applied as the gauge, so the
+// last post's number matches the headline score exactly.
+function postScore(point) {
+  return Math.round(calcScore(point.k_after) * behaviorFactor.value)
+}
+// Points this single post cost (negative) or added (positive).
+function postScoreDelta(point) {
+  return postScore(point) - Math.round(calcScore(point.k_before) * behaviorFactor.value)
+}
+
 const score = computed(() => calcScore(finalK.value))
 
 // Behavior-adjusted score — penalises users who consistently rely on the app
 // to clean up risky posts without changing their posting habits over time.
 const adjustedScore = computed(() => Math.round(score.value * behaviorFactor.value))
 
-// How many points the last post cost — negative means privacy dropped.
+// How many points the last post cost — reuses the exact per-post delta shown in
+// the breakdown, so the gauge and the last row can never disagree.
 const scoreDelta = computed(() => {
-  if (trajectory.value.length < 2) return null
-  const prev = trajectory.value[trajectory.value.length - 2]
-  return calcScore(finalK.value) - calcScore(prev.k_after)
+  if (!trajectory.value.length) return null
+  return postScoreDelta(trajectory.value[trajectory.value.length - 1])
 })
 
-const scoreColor = computed(() => {
-  if (adjustedScore.value >= 70) return '#198c68'
-  if (adjustedScore.value >= 40) return '#f4b740'
-  return '#d94841'
-})
+const scoreColor = computed(() => bandColor(adjustedScore.value))
 
 const scoreLabel = computed(() => {
   if (adjustedScore.value >= 70) return 'Low risk'
@@ -101,19 +114,6 @@ function formatK(k) {
   if (k >= 1_000_000) return `~${(k / 1_000_000).toFixed(1)}M`
   if (k >= 1_000) return `~${Math.round(k / 1_000)}K`
   return `~${k}`
-}
-
-function formatOneIn(k) {
-  if (!k) return ''
-  if (k >= 1_000_000) return `1 in ${(k / 1_000_000).toFixed(1)}M`
-  if (k >= 1_000) return `1 in ${Math.round(k / 1_000)}K`
-  return `1 in ${k}`
-}
-
-function riskBadgeClass(level) {
-  if (level === 'high') return 'badge bg-danger'
-  if (level === 'medium') return 'badge bg-warning text-dark'
-  return 'badge bg-success'
 }
 
 function togglePost(draftId) {
@@ -228,14 +228,6 @@ onMounted(load)
           <p v-if="scoreDelta !== null" class="x-small mb-0 mt-1" :class="scoreDelta < 0 ? 'text-danger' : 'text-success'">
             {{ scoreDelta > 0 ? '+' : '' }}{{ scoreDelta }} points from your last post
           </p>
-          <p class="x-small text-secondary mb-0 mt-1">
-            <span class="one-in-label">{{ formatOneIn(finalK) }}</span>
-            people in Singapore could match you
-          </p>
-          <p class="x-small text-secondary mb-0">
-            Based on {{ postCount }} post{{ postCount === 1 ? '' : 's' }} ·
-            the fewer the people, the more identifiable you are
-          </p>
         </div>
 
         <!-- What a stranger learns -->
@@ -298,22 +290,26 @@ onMounted(load)
               :aria-expanded="expandedDraftId === point.draft_id"
               @click="togglePost(point.draft_id)"
             >
-              <span class="post-num-shell">
-                <span class="post-num text-secondary small ">{{ i + 1 }}</span>
-              </span>
+              <span class="post-num">{{ i + 1 }}</span>
               <span class="post-toggle-caption">{{ point.text_content || '(image only)' }}</span>
-              <span class="post-chevron" :class="{ 'is-open': expandedDraftId === point.draft_id }" aria-hidden="true">⌄</span>
+              <svg
+                class="post-chevron"
+                :class="{ 'is-open': expandedDraftId === point.draft_id }"
+                width="16" height="16" viewBox="0 0 24 24" fill="none"
+                aria-hidden="true"
+              >
+                <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
             </button>
 
             <div v-if="expandedDraftId === point.draft_id" class="post-details">
-              <p class="mb-0 x-small text-secondary">{{ formatOneIn(point.k_after) }} people could match you after this post</p>
               <div class="post-detail-row">
-                <span :class="riskBadgeClass(point.risk_level)" style="font-size:0.7rem;white-space:nowrap">
-                  {{ point.risk_level }}
+                <span class="x-small text-secondary">Score impact</span>
+                <span class="post-delta" :class="postScoreDelta(point) < 0 ? 'text-danger' : 'text-secondary'">
+                  {{ postScoreDelta(point) === 0 ? '±0' : (postScoreDelta(point) > 0 ? '+' : '') + postScoreDelta(point) }} pts
                 </span>
                 <span v-if="point.cleaned" class="cleaned-badge">cleaned</span>
-                <span class="x-small text-secondary">{{ formatCapturedAt(point.captured_at) }}</span>
-                <span class="x-small text-secondary">+{{ point.delta_bits }} bits</span>
+                <span class="x-small text-secondary post-date">{{ formatCapturedAt(point.captured_at) }}</span>
               </div>
             </div>
           </div>
@@ -419,17 +415,6 @@ onMounted(load)
 .post-toggle:hover {
   background: #f2f6fc;
 }
-.post-num-shell {
-  align-self: stretch;
-  min-width: 42px;
-  display: grid;
-  place-items: center;
-  border-right: 1px solid #d7e2f1;
-  background: linear-gradient(180deg, #eaf2ff, #f5f9ff);
-}
-.post-toggle[aria-expanded='true'] .post-num-shell {
-  background: linear-gradient(180deg, #dde9ff, #eef5ff);
-}
 .post-toggle-caption {
   flex: 1;
   min-width: 0;
@@ -444,15 +429,25 @@ onMounted(load)
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+.post-delta {
+  font-size: 0.85rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.post-date {
+  margin-left: auto;
+  white-space: nowrap;
+}
 .post-chevron {
-  margin-right: 10px;
-  color: #6b7280;
-  font-size: 0.95rem;
-  line-height: 1;
+  margin-right: 12px;
+  color: #9aa4b2;
+  flex-shrink: 0;
   transition: transform 0.2s ease;
 }
 .post-chevron.is-open {
   transform: rotate(180deg);
+  color: #6b7280;
 }
 .post-details {
   border-top: 1px solid var(--trace-line, #e8edf5);
@@ -468,10 +463,13 @@ onMounted(load)
   flex-wrap: wrap;
 }
 .post-num {
-  display: block;
-  min-width: 18px;
+  flex-shrink: 0;
+  padding-left: 13px;
+  min-width: 26px;
   text-align: center;
-  font-weight: 1000;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #9aa4b2;
 }
 .x-small {
   font-size: 0.72rem;
@@ -518,10 +516,6 @@ onMounted(load)
 .behavior--steady    { background: #fff5df; color: #936509; border: 1px solid #f3d48b; }
 .behavior--reliant   { background: #fff0ee; color: #d94841; border: 1px solid #f5b8b5; }
 .behavior--building  { background: #f1f3f5; color: #6c757d; border: 1px solid #dee2e6; }
-.one-in-label {
-  font-weight: 700;
-  color: var(--trace-text, #1a1a2e);
-}
 .stranger-card {
   background: #1a1d2b;
   color: #f2f4f8;

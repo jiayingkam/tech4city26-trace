@@ -355,7 +355,7 @@ function cooldownRemaining(post) {
        since they don't fall through to this file's own header below. -->
   <HamburgerMenu
     v-if="subScreen"
-    @history="$emit('history')"
+    @history="closeSubScreen"
     @settings="$emit('settings')"
     @mosaic="$emit('mosaic')"
     @logout="$emit('logout')"
