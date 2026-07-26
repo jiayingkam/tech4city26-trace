@@ -381,6 +381,18 @@ export async function getExposureProfile(ownerId, onRetry) {
   return data.profile || null
 }
 
+// Forces a full server-side recompute (not just a re-read of the stored copy),
+// so "Refresh" reflects new posts/prompt changes. Returns the fresh profile.
+export async function rebuildExposureProfile(ownerId, onRetry) {
+  const res = await fetchWithRetry(
+    `${UPDATE_EXPOSURE_PROFILE_URL}/users/${ownerId}/rebuild`,
+    { method: 'POST' },
+    { onRetry },
+  )
+  const data = await parseOrThrow(res)
+  return data.profile || null
+}
+
 export async function getDraftThumbnail(draftId) {
   const res = await fetchWithRetry(`${UPLOAD_POST_URL}/drafts/${draftId}/original`)
   if (!res.ok) return null

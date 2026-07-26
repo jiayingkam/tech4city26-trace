@@ -54,21 +54,27 @@ Post text:
 For each piece of information that could narrow the author's home, workplace, daily routine, \
 physical identity, social network, or possessions, extract one observation.
 
-The `constraint` field must be a predicate over people in Singapore, not a topic label:
+The `constraint` field must be a predicate over people in Singapore, not a topic label. \
+Anchor it to what the text actually supports — do NOT add proximity to the author's home or \
+workplace unless the post implies it (e.g. a daily commute). A place "near a school" narrows \
+to that school, not to the author's home or workplace.
   BAD:  "mentions a gym"
-  GOOD: "regularly attends a gym with 6 am classes, likely within ~1 km of home or workplace"
+  GOOD: "regularly attends a specific gym with 6 am classes (a fixed weekday place and time)"
 
   BAD:  "mentions bus"
-  GOOD: "resides or works within ~400 m of a route 174 bus stop"
+  GOOD: "commutes daily on route 174, so likely lives or works near that route"
 
   BAD:  "has a dog"
   GOOD: "owns a dog, consistent with HDB pet rules (small breed) or private housing"
 
   BAD:  "mentions a run"
-  GOOD: "runs a fixed route regularly, likely within ~1 km of home or a regular commute point"
+  GOOD: "runs the same fixed route regularly (a recurring, locatable path)"
 
-  BAD:  "mentions food near office"
-  GOOD: "workplace is within walking distance (~500 m) of a kaya toast stall"
+  BAD:  "mentions food near a school"
+  GOOD: "regularly visits a kaya toast stall near a school (which school is not stated)"
+
+A generic "the school" does NOT identify which school — do not call it identifiable or named. \
+Only treat a school as identifiable when the text names it or an image finding pins it down.
 
 Subtle phrasing counts too — implied routines, fixed habits, and recurring places all narrow \
 the anonymity set even without an explicit place name. Extract these even when no location \
@@ -80,7 +86,7 @@ For `contribution_bits`: estimate bits of identifying information revealed by th
   - "takes bus 174 daily" → 1.5 (narrows by route geography)
   - "has a dog" → 3.0 (~700 K dog-owning households)
   - "same fixed running loop, pre-work" → 2.0 (routine + implied geography)
-  - "6am class near home" → 2.5 (time + implied proximity)
+  - "6am class at a fixed gym" → 2.5 (time + a recurring location)
   - specific face / name / address → 8–10
 
 If the text contains absolutely no information about the author's life, habits, or context, \

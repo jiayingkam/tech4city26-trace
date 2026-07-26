@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getMe, getExposureProfile } from '../api'
+import { getMe, getExposureProfile, rebuildExposureProfile } from '../api'
 import HamburgerMenu from '../components/HamburgerMenu.vue'
 
 // Window-level cache — survives screen navigation AND Vite HMR module re-evaluation.
@@ -131,6 +131,12 @@ function formatCapturedAt(value) {
   })
 }
 
+// Repeated posts cite the same phrase once per post — collapse duplicates and
+// wrap each in quotes so it reads as a citation: based on "near the school".
+function formatCitations(list) {
+  return [...new Set(list || [])].map((c) => `“${c}”`).join(', ')
+}
+
 function applyCache(data) {
   trajectory.value = data.trajectory || []
   finalK.value = data.final_k
@@ -162,9 +168,22 @@ async function load(force = false) {
   }
 }
 
+// Unlike load(), this forces a server-side recompute so new posts / prompt
+// changes show up — the stored profile is replaced, not just re-read.
 async function refresh() {
   _setCache(null)
-  await load(true)
+  loading.value = true
+  error.value = null
+  try {
+    const user = await getMe()
+    const data = (await rebuildExposureProfile(user.user_id)) || {}
+    _setCache(data)
+    applyCache(data)
+  } catch (err) {
+    error.value = err.message || 'Could not refresh privacy data.'
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(load)
@@ -241,7 +260,7 @@ onMounted(load)
             <span class="stranger-dot" :class="`conf--${inf.confidence}`"></span>
             <div class="flex-grow-1">
               <p class="mb-0 small stranger-statement">{{ inf.statement }}</p>
-              <p class="mb-0 stranger-cite">from {{ inf.based_on.join(' · ') }}</p>
+              <p class="mb-0 stranger-cite">based on {{ formatCitations(inf.based_on) }}</p>
             </div>
             <span class="stranger-conf-tag" :class="`conf--${inf.confidence}`">{{ inf.confidence }}</span>
           </div>

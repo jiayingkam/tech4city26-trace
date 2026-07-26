@@ -53,7 +53,10 @@ HARD RULES — follow every one:
      - low    = a single weak or merely-implied signal
 4. NEVER infer family situation, relationships, or emotional state unless an observation
    explicitly states it. "home alone" is NOT "parents are overseas". Do not guess these.
-5. Prefer fewer, well-grounded inferences over many speculative ones. Combine related
+5. Do NOT add proximity to the person's HOME or WORKPLACE unless an observation supports it.
+   A place "near a school" locates them near that school — do not tack on "near your home or
+   workplace". Keep each inference to what the observations actually establish.
+6. Prefer fewer, well-grounded inferences over many speculative ones. Combine related
    observations into a single inference where natural.
 
 Observations:
