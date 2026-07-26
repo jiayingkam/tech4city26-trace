@@ -104,6 +104,12 @@ services:
     depends_on:
       azure_db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5005/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   quarantine_items:
     platform: linux/amd64
@@ -131,6 +137,11 @@ services:
     ports:
       - "5007:5007"
     env_file: ../.env
+    depends_on:
+      users:
+        condition: service_healthy
+      exposure_profiles:
+        condition: service_healthy
 
   detect_mosaic_risk:
     build:
@@ -233,6 +244,13 @@ services:
     ports:
       - "5013:5013"
     env_file: ../.env
+    depends_on:
+      content_drafts:
+        condition: service_healthy
+      detections:
+        condition: service_healthy
+      exposure_profiles:
+        condition: service_healthy
 
   teachable_moment_chat:
     build:

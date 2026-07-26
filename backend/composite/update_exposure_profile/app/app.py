@@ -21,6 +21,9 @@ def create_app() -> Flask:
         swag = swagger(app)
         swag["info"]["version"] = "1.0"
         swag["info"]["title"] = "Update Exposure Profile"
+        swag["securityDefinitions"] = {
+            "BearerAuth": {"type": "apiKey", "name": "Authorization", "in": "header"}
+        }
         return jsonify(swag)
 
     swaggerui_bp = get_swaggerui_blueprint(
