@@ -4,6 +4,7 @@ import { editQuarantine, deleteQuarantine, releaseQuarantine } from '../api'
 
 const props = defineProps({
   photoUrl: { type: String, default: null },
+  caption: { type: String, default: '' },
   quarantine: { type: Object, required: true },
 })
 const emit = defineEmits(['restart', 'edit'])
@@ -79,7 +80,8 @@ async function handleRelease() {
     </div>
 
     <div class="app-content text-center">
-      <img v-if="photoUrl" :src="photoUrl" class="review-photo mb-3" alt="Your photo" />
+      <img v-if="photoUrl" :src="photoUrl" class="review-photo mb-2" alt="Your photo" />
+      <p v-if="caption" class="review-caption mb-3">{{ caption }}</p>
 
       <div v-if="resultMessage" class="coach-card small">{{ resultMessage }}</div>
       <template v-else>
@@ -116,6 +118,10 @@ async function handleRelease() {
   width: 100%;
   border: 1px solid var(--trace-line);
   border-radius: 18px;
+}
+.review-caption {
+  text-align: left;
+  color: var(--trace-ink);
 }
 .pause-card {
   padding: 18px;
