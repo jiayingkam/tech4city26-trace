@@ -137,6 +137,17 @@ export async function getTeachableMoment(draftId, onRetry) {
   return parseOrThrow(res)
 }
 
+// Synthesizes one comprehensive explanation for a cluster of findings whose regions
+// overlap in the photo (e.g. several details all flagged on the same passport).
+export async function explainFindingGroup(draftId, findings, onRetry) {
+  const res = await fetchWithRetry(`${GENERATE_TEACHABLE_MOMENT_URL}/drafts/${draftId}/explain-group`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ findings }),
+  }, { onRetry })
+  return parseOrThrow(res)
+}
+
 export async function sendTeachableMomentChat(draftId, message, history = [], onRetry) {
   const res = await fetchWithRetry(`${TEACHABLE_MOMENT_CHAT_URL}/drafts/${draftId}/chat`, {
     method: 'POST',

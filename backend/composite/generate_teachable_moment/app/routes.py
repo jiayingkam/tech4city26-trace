@@ -3,6 +3,8 @@ import requests
 from flask import Blueprint, jsonify, request
 from trace_auth import forwarded_auth_headers
 
+from .group_synthesis import synthesise_group_explanation
+
 bp = Blueprint("generate_teachable_moment", __name__)
 
 DETECTIONS_SERVICE_URL = os.environ.get("DETECTIONS_SERVICE_URL", "http://detections:5003")
@@ -152,6 +154,65 @@ def generate_teachable_moment(draft_id):
         "detail": primary.get("detail"),
         "detection_count": len(detections),
     }), 200
+
+@bp.post("/drafts/<draft_id>/explain-group")
+def explain_finding_group(draft_id):
+    """Synthesize one comprehensive explanation for a cluster of findings whose regions
+    overlap in the photo (e.g. several details all flagged on the same passport).
+    Combines their categories/details into one grounded sentence about what they reveal
+    TOGETHER, instead of listing each one separately. draft_id is unused server-side
+    (the caller already has the findings) — kept in the path for consistency with this
+    service's other per-draft routes and so future logging/rate-limiting can key on it.
+    ---
+    tags:
+      - Teachable Moment
+    security:
+      - BearerAuth: []
+    consumes:
+      - application/json
+    parameters:
+      - in: path
+        name: draft_id
+        type: string
+        required: true
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - findings
+          properties:
+            findings:
+              type: array
+              items:
+                type: object
+                properties:
+                  category:
+                    type: string
+                  detail:
+                    type: string
+    responses:
+      200:
+        description: The synthesized explanation.
+        schema:
+          type: object
+          properties:
+            draft_id:
+              type: string
+            explanation:
+              type: string
+      400:
+        description: findings is missing or empty.
+    """
+    body = request.get_json(silent=True) or {}
+    findings = body.get("findings")
+    if not findings:
+        return jsonify({"error": "findings is required"}), 400
+
+    explanation = synthesise_group_explanation(findings)
+    return jsonify({"draft_id": draft_id, "explanation": explanation}), 200
+
 
 # In professional setups, a Load Balancer and/or caller pings this /health URL every few seconds.
 # If your code gets stuck in an infinite loop during a request,

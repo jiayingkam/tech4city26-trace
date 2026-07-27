@@ -1,6 +1,6 @@
 <script setup>
-import { ref, computed } from 'vue'
-import { sendTeachableMomentChat } from '../api'
+import { ref, computed, onMounted } from 'vue'
+import { sendTeachableMomentChat, explainFindingGroup } from '../api'
 import TeachableChatPanel from '../components/TeachableChatPanel.vue'
 
 const props = defineProps({
@@ -45,9 +45,100 @@ function boxStyle(region) {
   }
 }
 
+function regionsOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
+}
+
 const imageFindings = computed(() =>
-  props.detections.filter((d) => d.source_type === 'image' && d.bounding_region)
+  props.detections
+    .filter((d) => d.source_type === 'image' && d.bounding_region)
+    .map((d, i) => ({ ...d, idx: i }))
 )
+
+// Groups findings whose boxes actually overlap (directly, or transitively
+// through a chain of overlaps) — geometry, not category, since what makes
+// several findings read as "the same thing" is that they cover the same
+// spot in the photo (e.g. a passport's photo, name, and number all flagged
+// within the one passport-shaped box). Each group renders as ONE merged box
+// on the photo and one comprehensive line below, instead of several
+// overlapping outlines and near-duplicate bullets.
+const imageFindingGroups = computed(() => {
+  const list = imageFindings.value
+  const groupOf = new Array(list.length).fill(-1)
+  const groups = []
+
+  for (let i = 0; i < list.length; i++) {
+    if (groupOf[i] !== -1) continue
+    const members = []
+    const stack = [i]
+    groupOf[i] = groups.length
+    while (stack.length) {
+      const cur = stack.pop()
+      members.push(list[cur])
+      for (let j = 0; j < list.length; j++) {
+        if (groupOf[j] === -1 && regionsOverlap(list[cur].bounding_region, list[j].bounding_region)) {
+          groupOf[j] = groupOf[i]
+          stack.push(j)
+        }
+      }
+    }
+    // Ascending by original index so numbers read naturally (②③④⑤⑥),
+    // not in graph-traversal order.
+    groups.push(members.sort((a, b) => a.idx - b.idx))
+  }
+  return groups
+})
+
+// The smallest rectangle containing every member's own box — by construction
+// this always fully contains each individual region, never clips one.
+function unionRegion(group) {
+  const regions = group.map((d) => d.bounding_region)
+  const minX = Math.min(...regions.map((r) => r.x))
+  const minY = Math.min(...regions.map((r) => r.y))
+  const maxX = Math.max(...regions.map((r) => r.x + r.w))
+  const maxY = Math.max(...regions.map((r) => r.y + r.h))
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
+}
+
+function groupLabel(group) {
+  return [...new Set(group.map((d) => CATEGORY_LABELS[d.category] || d.category))].join(' + ')
+}
+
+// Deterministic, no-LLM text — shown immediately and as the fallback if the
+// synthesis call below fails, so the list never looks broken or empty.
+function fallbackGroupText(group) {
+  const details = group.map((d) => (d.detail || '').replace(/\.\s*$/, '')).filter(Boolean)
+  if (details.length === 0) return ''
+  if (details.length === 1) return details[0]
+  return `${details.slice(0, -1).join(', ')}, and ${details[details.length - 1]} — all visible in the same spot.`
+}
+
+// One synthesized explanation per overlap-group, filled in asynchronously.
+// Keyed by group index; a lone finding (group.length === 1) never needs one.
+const groupExplanations = ref({})
+
+function groupText(group, gi) {
+  if (group.length === 1) return group[0].detail
+  return groupExplanations.value[gi]?.text || fallbackGroupText(group)
+}
+
+async function loadGroupExplanations() {
+  const groups = imageFindingGroups.value
+  await Promise.all(groups.map(async (group, gi) => {
+    if (group.length < 2) return
+    const draftId = group[0]?.draft_id
+    if (!draftId) return
+    try {
+      const findings = group.map((d) => ({ category: CATEGORY_LABELS[d.category] || d.category, detail: d.detail }))
+      const { explanation } = await explainFindingGroup(draftId, findings)
+      if (explanation) groupExplanations.value = { ...groupExplanations.value, [gi]: { text: explanation } }
+    } catch {
+      // groupText() already falls back to the deterministic join above
+    }
+  }))
+}
+
+onMounted(loadGroupExplanations)
 const metadataFindings = computed(() => props.detections.filter((d) => d.category === 'metadata'))
 const textFindings = computed(() => props.detections.filter((d) => d.source_type === 'text'))
 const hasFindings = computed(() => props.detections.length > 0)
@@ -129,12 +220,14 @@ async function sendChat(text) {
       <div v-else-if="photoUrl" class="photo-wrap mb-3">
         <img ref="imgEl" :src="photoUrl" class="w-100 d-block" alt="Your photo" @load="onImageLoad" />
         <div
-          v-for="(d, i) in imageFindings"
-          :key="i"
+          v-for="(group, gi) in imageFindingGroups"
+          :key="gi"
           class="finding-box"
-          :style="boxStyle(d.bounding_region)"
+          :style="boxStyle(unionRegion(group))"
         >
-          <span class="finding-label">{{ CATEGORY_LABELS[d.category] || d.category }}</span>
+          <span class="finding-marker-cluster">
+            <span v-for="d in group" :key="d.idx" class="finding-marker finding-marker--inline">{{ d.idx + 1 }}</span>
+          </span>
         </div>
       </div>
 
@@ -153,8 +246,11 @@ async function sendChat(text) {
         <div v-if="imageFindings.length" class="finding-panel mb-3">
           <p class="fw-bold small mb-2">In your photo</p>
           <ul class="list-unstyled small mb-0">
-            <li v-for="(d, i) in imageFindings" :key="i" class="mb-1">
-              <strong>{{ CATEGORY_LABELS[d.category] || d.category }}:</strong> {{ d.detail }}
+            <li v-for="(group, gi) in imageFindingGroups" :key="gi" class="mb-1 d-flex align-items-start gap-2">
+              <span class="finding-marker-group">
+                <span v-for="d in group" :key="d.idx" class="finding-marker finding-marker--inline">{{ d.idx + 1 }}</span>
+              </span>
+              <span><strong>{{ groupLabel(group) }}:</strong> {{ groupText(group, gi) }}</span>
             </li>
           </ul>
         </div>
@@ -275,16 +371,51 @@ async function sendChat(text) {
   border-radius: 8px;
   pointer-events: none;
 }
-.finding-label {
+.finding-marker {
   position: absolute;
-  top: -1.4rem;
-  left: 0;
+  /* Sits just inside the box's own corner rather than hanging over its
+     outer edge — a box near the photo's border would otherwise get its
+     marker clipped by .photo-wrap's overflow: hidden. */
+  top: 4px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
   background: var(--trace-coral);
   color: #fff;
-  font-size: 0.65rem;
-  padding: 1px 6px;
-  border-radius: 6px 6px 0 0;
-  white-space: nowrap;
+  font-size: 0.68rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 2px #fff;
+}
+/* Reused inline (non-floating) in the "In your photo" list so each line
+   carries the same number as its box on the image above. */
+.finding-marker--inline {
+  position: static;
+  flex-shrink: 0;
+  margin-top: 1px;
+  box-shadow: none;
+}
+.finding-marker-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-shrink: 0;
+}
+/* On-image version of the same marker row — anchored to the merged box's
+   corner (see the edge-clipping note on .finding-marker) rather than
+   flowing inline like .finding-marker-group does in the list below. */
+.finding-marker-cluster {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+  max-width: calc(100% - 8px);
 }
 .finding-panel {
   padding: 12px 14px;
