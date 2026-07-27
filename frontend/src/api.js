@@ -271,6 +271,40 @@ export async function addManualEdit(draftId, region) {
   return parseOrThrow(res)
 }
 
+// Same pattern as addManualEdit, for a face the user wants covered that
+// wasn't auto-detected (or was, but got removed). Starts 'pending' (active
+// immediately) — unlike auto-detected faces, which start opted-out, a
+// manually-added one only exists because the user explicitly chose it.
+export async function addManualFaceEdit(draftId, region) {
+  const detection = await parseOrThrow(
+    await fetchWithRetry(`${DETECTIONS_URL}/detections`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        draft_id: draftId,
+        category: 'face',
+        source_type: 'image',
+        exposure_score: 1,
+        model_version: 'manual',
+        bounding_region: region,
+      }),
+    })
+  )
+
+  const res = await fetchWithRetry(`${EDITS_URL}/edits`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      draft_id: draftId,
+      edit_type: 'emoji',
+      region_affected: region,
+      detection_id: detection.detection_id,
+      status: 'pending',
+    }),
+  })
+  return parseOrThrow(res)
+}
+
 // Renames a self-marked area by updating the underlying Detection's detail
 // (the one-line description RemediationView shows next to its checkbox).
 export async function deleteEdit(editId) {

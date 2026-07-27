@@ -4,7 +4,7 @@ import tempfile
 import threading
 import requests
 from flask import Blueprint, request, jsonify, send_file
-from PIL import Image, ImageFilter, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 from flask_jwt_extended import get_jwt_identity
 from trace_auth import forwarded_auth_headers
@@ -105,10 +105,40 @@ def _get_original_path(draft_id):
     return tmp_path, None
 
 
+def _generate_emoji(size):
+    """Draws a simple smiley at the given (w, h) pixel size.
+
+    Pillow can't reliably render a real color-emoji glyph from text (no
+    COLR/CBDT font support), and bundling a downloaded image asset adds an
+    external dependency for one small icon — drawing it with basic shapes
+    sidesteps both. Returns an RGBA image; the transparent area outside the
+    circle is what lets paste() below only affect the round face, not its
+    bounding box's corners.
+    """
+    w, h = max(1, size[0]), max(1, size[1])
+    dim = max(w, h)
+    face = Image.new("RGBA", (dim, dim), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(face)
+    draw.ellipse((0, 0, dim - 1, dim - 1), fill=(255, 205, 40, 255))
+    eye_r = max(1, dim // 12)
+    eye_y = dim * 0.38
+    for eye_x in (dim * 0.30, dim * 0.70):
+        draw.ellipse(
+            (eye_x - eye_r, eye_y - eye_r, eye_x + eye_r, eye_y + eye_r),
+            fill=(70, 45, 10, 255),
+        )
+    draw.arc(
+        (dim * 0.22, dim * 0.40, dim * 0.78, dim * 0.82),
+        start=15, end=165, fill=(70, 45, 10, 255), width=max(2, dim // 18),
+    )
+    return face.resize((w, h), Image.LANCZOS)
+
+
 def apply_remediation(original_path, edits):
-    """Blur each region that has a box and upload the result to the GCS
-    bucket under a blob name derived from original_path. Returns that blob
-    name. Whatever format the original was opened as is preserved on save."""
+    """Blur (or emoji-cover) each region that has a box and upload the result
+    to the GCS bucket under a blob name derived from original_path. Returns
+    that blob name. Whatever format the original was opened as is preserved
+    on save."""
     img = Image.open(original_path)
     original_format = img.format  # exif_transpose() below returns a fresh
                                    # image that doesn't carry this over
@@ -118,14 +148,24 @@ def apply_remediation(original_path, edits):
     # save below, or the output loses the tag telling viewers to rotate it
     # and comes out sideways with no way to recover the correct orientation.
     img = ImageOps.exif_transpose(img)
+    if img.mode != "RGBA":
+        img = img.convert("RGBA")
 
     for e in edits:
         region = e.get("region_affected")
-        if region:
-            box = (region["x"], region["y"],
-                   region["x"] + region["w"], region["y"] + region["h"])
+        if not region:
+            continue
+        box = (region["x"], region["y"],
+               region["x"] + region["w"], region["y"] + region["h"])
+        if e.get("edit_type") == "emoji":
+            emoji = _generate_emoji((region["w"], region["h"]))
+            img.paste(emoji, (region["x"], region["y"]), emoji)
+        else:
             blurred = img.crop(box).filter(ImageFilter.GaussianBlur(radius=15))
             img.paste(blurred, box)
+
+    if original_format in ("JPEG", "JPG"):
+        img = img.convert("RGB")  # JPEG has no alpha channel
 
     blob_name = os.path.basename(original_path)
     buf = io.BytesIO()
@@ -311,7 +351,13 @@ def remediate_content(draft_id):
             # large bounding box gets dropped rather than trusted — see
             # vision_scanner.py's MAX_BOX_AREA_FRAC) without that meaning
             # "strip metadata".
-            edit_type = "metadata_strip" if d.get("category") == "metadata" else "blur"
+            category = d.get("category")
+            if category == "metadata":
+                edit_type = "metadata_strip"
+            elif category == "face":
+                edit_type = "emoji"
+            else:
+                edit_type = "blur"
             region = d.get("bounding_region")
 
             existing = existing_by_detection.get(d["detection_id"])
@@ -333,6 +379,12 @@ def remediate_content(draft_id):
                 "region_affected": region,
                 "detection_id": d["detection_id"],
             }
+            if edit_type == "emoji":
+                # Opt-in, not a warning: unlike real risk findings (which
+                # start pending/pre-accepted), a bare face isn't a privacy
+                # risk in this app's model — the user has to actively choose
+                # to cover it, not have Trace apply it by default.
+                payload["status"] = "reverted"
             edit_resp = requests.post(f"{EDITS_SERVICE_URL}/edits", json=payload, headers=auth_headers)
             if edit_resp.status_code != 201:
                 return jsonify({"error": "failed to create edit"}), 502

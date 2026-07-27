@@ -5,7 +5,7 @@ from .models import Edit
 
 edits_bp = Blueprint("edits", __name__)
 
-VALID_EDIT_TYPES = ("blur", "metadata_strip")
+VALID_EDIT_TYPES = ("blur", "metadata_strip", "emoji")
 VALID_STATUSES = ("pending", "applied", "reverted")
 
 
@@ -107,12 +107,20 @@ def create_edit():
         return error
     if data["edit_type"] not in VALID_EDIT_TYPES:
         return jsonify({"error": "invalid edit_type"}), 400
+    # Optional — lets a caller create an edit that starts opted OUT (e.g. a
+    # face-cover suggestion, which isn't a risk finding and shouldn't be
+    # bundled into "Suggested fixes" pre-accepted the way a real risk is).
+    # Every existing caller omits this and gets the model's "pending" default.
+    status = data.get("status", "pending")
+    if status not in VALID_STATUSES:
+        return jsonify({"error": "invalid status"}), 400
     edit = Edit(
         draft_id=data["draft_id"],
         owner_id=get_jwt_identity(),
         detection_id=data.get("detection_id"),
         edit_type=data["edit_type"],
         region_affected=data.get("region_affected"),  # null for strips
+        status=status,
     )
     db.session.add(edit)
     db.session.commit()

@@ -8,6 +8,7 @@ import {
   downloadRemediated,
   updateEditRegion,
   addManualEdit,
+  addManualFaceEdit,
   deleteEdit,
   renameDetection,
   sendTeachableMomentChat,
@@ -67,6 +68,10 @@ const hasPendingImageEdits = computed(() => proposedEdits.value.some((e) => e.st
 
 const blurEdits = computed(() => proposedEdits.value.filter((e) => e.edit_type === 'blur'))
 const stripEdits = computed(() => proposedEdits.value.filter((e) => e.edit_type === 'metadata_strip'))
+// Face-cover suggestions are opt-in, not a risk warning — kept out of
+// "Suggested fixes" and shown in their own section instead (see faceEdits).
+const riskEdits = computed(() => proposedEdits.value.filter((e) => e.edit_type !== 'emoji'))
+const faceEdits = computed(() => proposedEdits.value.filter((e) => e.edit_type === 'emoji'))
 
 function editLabel(edit) {
   const detail = detailByEditId[edit.edit_id]
@@ -80,6 +85,11 @@ function editLabel(edit) {
     return stripEdits.value.length > 1
       ? `Remove hidden GPS location data (${stripEdits.value.indexOf(edit) + 1})`
       : 'Remove hidden GPS location data'
+  }
+  if (edit.edit_type === 'emoji') {
+    return faceEdits.value.length > 1
+      ? `Cover face ${faceEdits.value.indexOf(edit) + 1} with an emoji`
+      : 'Cover this face with an emoji'
   }
   return edit.edit_type
 }
@@ -123,7 +133,47 @@ function drawPreview() {
     ctx.drawImage(small, 0, 0, small.width, small.height, x, y, w, h)
   }
 
+  for (const edit of faceEdits.value) {
+    if (edit.status === 'reverted' || !edit.region_affected) continue
+    drawEmojiPreview(ctx, edit.region_affected)
+  }
+
   updateScale()
+}
+
+// Client-side approximation of the backend's generated smiley (see
+// _generate_emoji in remediate_content) — just enough to preview the effect
+// before confirming; the real, server-rendered version is what actually gets
+// baked into the downloaded photo.
+function drawEmojiPreview(ctx, region) {
+  const { x, y, w, h } = region
+  const dim = Math.max(w, h)
+  const cx = x + w / 2
+  const cy = y + h / 2
+  const r = dim / 2
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(cx, cy, r, 0, Math.PI * 2)
+  ctx.fillStyle = '#ffcd28'
+  ctx.fill()
+
+  ctx.fillStyle = '#462d0a'
+  const eyeR = Math.max(1, dim / 12)
+  const eyeY = y + dim * 0.38
+  for (const eyeX of [x + dim * 0.30, x + dim * 0.70]) {
+    ctx.beginPath()
+    ctx.arc(eyeX, eyeY, eyeR, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  ctx.beginPath()
+  ctx.strokeStyle = '#462d0a'
+  ctx.lineWidth = Math.max(2, dim / 18)
+  ctx.lineCap = 'round'
+  ctx.arc(cx, y + dim * 0.55, dim * 0.28, 0.35 * Math.PI, 0.65 * Math.PI)
+  ctx.stroke()
+  ctx.restore()
 }
 
 onMounted(() => {
@@ -145,7 +195,7 @@ function updateScale() {
 }
 
 const editableBoxes = computed(() =>
-  blurEdits.value.filter((e) => e.status !== 'reverted' && e.region_affected)
+  [...blurEdits.value, ...faceEdits.value].filter((e) => e.status !== 'reverted' && e.region_affected)
 )
 
 function boxStyle(region) {
@@ -189,12 +239,14 @@ function startResize(edit, evt) {
 
 // Lets someone mark a spot the scanner missed entirely, same interaction
 // as move/resize above but drawing a fresh rectangle from a start point
-// instead of adjusting one that already exists.
+// instead of adjusting one that already exists. Holds false, 'blur', or
+// 'face' — which kind determines which API call onDragEnd makes once the
+// box is drawn.
 const addMode = ref(false)
 const newBoxDraft = ref(null)
 
-function toggleAddMode() {
-  addMode.value = !addMode.value
+function toggleAddMode(kind) {
+  addMode.value = addMode.value === kind ? false : kind
   newBoxDraft.value = null
 }
 
@@ -262,11 +314,14 @@ async function onDragEnd() {
 
   if (d.mode === 'draw') {
     const region = newBoxDraft.value
+    const kind = addMode.value
     newBoxDraft.value = null
     addMode.value = false
     if (!region || region.w < MIN_BOX_SIZE || region.h < MIN_BOX_SIZE) return
     try {
-      const edit = await addManualEdit(props.draftId, region)
+      const edit = kind === 'face'
+        ? await addManualFaceEdit(props.draftId, region)
+        : await addManualEdit(props.draftId, region)
       manualEditIds.add(edit.edit_id)
       proposedEdits.value.push({ ...edit })
       drawPreview()
@@ -286,6 +341,13 @@ async function onDragEnd() {
     d.edit.region_affected = d.startRegion
     drawPreview()
   }
+}
+
+// Bulk version of toggleEdit for the "Cover all faces" button — turns on
+// every face that isn't already covered, one at a time, reusing the same
+// optimistic-update/rollback behaviour per edit.
+function coverAllFaces() {
+  return Promise.all(faceEdits.value.filter((e) => e.status === 'reverted').map(toggleEdit))
 }
 
 async function toggleEdit(edit) {
@@ -446,9 +508,22 @@ async function sendChat(text) {
       <img v-else-if="confirmed && cleanedUrl" :src="cleanedUrl" class="w-100 rounded mb-1" alt="Cleaned photo" />
       <p v-if="confirmed" class="status-chip safe mx-auto mb-3">Cleaned version</p>
       <template v-else-if="photoUrl">
-        <button class="btn btn-sm mb-2" :class="addMode ? 'btn-secondary' : 'btn-outline-primary'" @click="toggleAddMode">
-          {{ addMode ? 'Cancel marking' : 'Mark a missed area' }}
-        </button>
+        <div class="d-flex gap-2 mb-2 flex-wrap justify-content-center">
+          <button
+            class="btn btn-sm"
+            :class="addMode === 'blur' ? 'btn-secondary' : 'btn-outline-primary'"
+            @click="toggleAddMode('blur')"
+          >
+            {{ addMode === 'blur' ? 'Cancel marking' : 'Mark a missed area' }}
+          </button>
+          <button
+            class="btn btn-sm"
+            :class="addMode === 'face' ? 'btn-secondary' : 'btn-outline-primary'"
+            @click="toggleAddMode('face')"
+          >
+            {{ addMode === 'face' ? 'Cancel marking' : 'Cover a missed face' }}
+          </button>
+        </div>
         <p v-if="addMode" class="soft-note text-center mb-3">Drag on the photo to draw a box around it.</p>
         <p v-else-if="editableBoxes.length" class="soft-note text-center mb-3">
           Drag a box to move it, or the corner handle to resize it.
@@ -456,9 +531,9 @@ async function sendChat(text) {
       </template>
       <div v-else class="mb-3"></div>
 
-      <div v-if="proposedEdits.length" class="fix-panel mb-3">
+      <div v-if="riskEdits.length" class="fix-panel mb-3">
         <p class="fw-bold small mb-2">Suggested fixes</p>
-        <div v-for="edit in proposedEdits" :key="edit.edit_id" class="form-check form-switch fix-row">
+        <div v-for="edit in riskEdits" :key="edit.edit_id" class="form-check form-switch fix-row">
           <input
             :id="edit.edit_id"
             class="form-check-input"
@@ -500,6 +575,46 @@ async function sendChat(text) {
             >
               Edit
             </button>
+            <button
+              v-if="isManualEdit(edit) && !confirmed"
+              type="button"
+              class="remove-btn"
+              aria-label="Remove this area"
+              @click.stop.prevent="removeManualEdit(edit)"
+            >
+              ×
+            </button>
+          </label>
+        </div>
+      </div>
+
+      <div v-if="faceEdits.length" class="fix-panel fix-panel--faces mb-3">
+        <div class="d-flex align-items-center justify-content-between mb-1">
+          <p class="fw-bold small mb-0">Cover faces <span class="optional-tag">optional</span></p>
+          <button
+            v-if="faceEdits.length > 1 && faceEdits.some((e) => e.status === 'reverted')"
+            type="button"
+            class="cover-all-btn"
+            :disabled="confirmed"
+            @click="coverAllFaces"
+          >
+            Cover all
+          </button>
+        </div>
+        <p class="x-small text-secondary mb-2">
+          A face on its own isn't flagged as a risk — turn any of these on if you'd like to cover it anyway.
+        </p>
+        <div v-for="edit in faceEdits" :key="edit.edit_id" class="form-check form-switch fix-row">
+          <input
+            :id="edit.edit_id"
+            class="form-check-input"
+            type="checkbox"
+            :checked="edit.status !== 'reverted'"
+            :disabled="confirmed"
+            @change="toggleEdit(edit)"
+          />
+          <label class="form-check-label small fw-semibold" :for="edit.edit_id">
+            {{ editLabel(edit) }}
             <button
               v-if="isManualEdit(edit) && !confirmed"
               type="button"
@@ -643,6 +758,39 @@ async function sendChat(text) {
   border: 1px solid var(--trace-line);
   border-radius: 14px;
   background: #fff;
+}
+/* Deliberately calmer than .fix-panel's risk-finding look — this section is
+   an opt-in choice, not a warning, so it shouldn't visually read as one. */
+.fix-panel--faces {
+  background: #f7f8fb;
+}
+.cover-all-btn {
+  border: none;
+  background: none;
+  color: var(--trace-primary, #2f6fed);
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+.cover-all-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.optional-tag {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #6b7280;
+  background: #eef0f3;
+  padding: 1px 7px;
+  border-radius: 999px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.x-small {
+  font-size: 0.72rem;
 }
 .fix-row {
   display: flex;

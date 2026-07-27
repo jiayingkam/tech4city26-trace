@@ -49,9 +49,15 @@ function regionsOverlap(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
 }
 
+// Faces are an opt-in convenience (see RemediationView's "Cover faces"
+// section), not a risk — excluded here so this screen never treats them as
+// a finding. Otherwise several overlapping faces in a group photo get
+// grouped by imageFindingGroups below into one giant merged box (that
+// grouping is meant for a handful of genuinely-overlapping risk findings,
+// like several details on the same passport, not a crowd of faces).
 const imageFindings = computed(() =>
   props.detections
-    .filter((d) => d.source_type === 'image' && d.bounding_region)
+    .filter((d) => d.source_type === 'image' && d.bounding_region && d.category !== 'face')
     .map((d, i) => ({ ...d, idx: i }))
 )
 
@@ -141,7 +147,12 @@ async function loadGroupExplanations() {
 onMounted(loadGroupExplanations)
 const metadataFindings = computed(() => props.detections.filter((d) => d.category === 'metadata'))
 const textFindings = computed(() => props.detections.filter((d) => d.source_type === 'text'))
-const hasFindings = computed(() => props.detections.length > 0)
+// Real risk only — a photo with nothing but faces still reads as "looks
+// clear" here, same reasoning as imageFindings above.
+const hasFindings = computed(() => props.detections.some((d) => d.category !== 'face'))
+// Faces still need a way to reach the opt-in "Cover faces" panel on the next
+// screen even when there's no real risk to fix — see the continue button.
+const hasFaceFindings = computed(() => props.detections.some((d) => d.category === 'face'))
 
 const isVideo = computed(() => props.contentType === 'video')
 
@@ -329,6 +340,7 @@ async function sendChat(text) {
       <button v-if="isVideo" class="btn btn-primary w-100" @click="$emit('restart')">Done</button>
       <template v-else>
         <button v-if="hasFindings" class="btn btn-primary w-100" @click="$emit('continue')">Fix the risky parts</button>
+        <button v-else-if="hasFaceFindings" class="btn btn-primary w-100" @click="$emit('continue')">Continue</button>
         <button class="btn btn-outline-secondary w-100" @click="$emit('restart')">Back</button>
       </template>
     </div>

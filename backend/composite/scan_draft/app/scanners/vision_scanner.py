@@ -287,6 +287,29 @@ def scan_image(image_path):
     if not faces:
         return _scan_whole_image_fallback(image_path, width, height)
 
+    # A face on its own isn't treated as a privacy risk in this app (that's
+    # what the uniform-crest search below is actually for) — this is an
+    # opt-in convenience finding so the review screen can offer "cover this
+    # face with an emoji" for anyone who wants it, not a warning. Kept at the
+    # lowest exposure_score so it stays negligible if it ever reaches mosaic
+    # scoring. Uses the original (non-downscaled) face coords directly, same
+    # coordinate space every other finding's bounding_region is reported in.
+    face_findings = [
+        {
+            "category": "face",
+            "source_type": "image",
+            "exposure_score": 1,
+            "confidence": 1.0,
+            "model_version": "cloud-vision-face-detection",
+            "detail": "A face is visible in this photo.",
+            "bounding_region": {
+                "x": round(f["x"]), "y": round(f["y"]),
+                "w": round(f["w"]), "h": round(f["h"]),
+            },
+        }
+        for f in faces
+    ]
+
     # Everything past this point works in the (possibly) downscaled image's
     # coordinate space; scale is folded back out of the final bounding_region
     # below so reported regions still line up with the original photo.
@@ -296,7 +319,7 @@ def scan_image(image_path):
         for f in faces
     ]
 
-    findings = []
+    findings = list(face_findings)
     with Image.open(image_path) as img:
         if scale < 1.0:
             img = img.resize((round(width * scale), round(height * scale)), Image.LANCZOS)
