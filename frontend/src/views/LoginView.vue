@@ -171,7 +171,10 @@ async function submit() {
 <style scoped>
 .login-screen {
   position: relative;
-  justify-content: center;
+  /* safe center: centers when content fits, falls back to top-alignment when
+     it overflows — plain `center` would push the top of the content above
+     scrollTop:0, making it permanently unreachable once the auth form expands. */
+  justify-content: safe center;
   gap: 52px;
   padding: 24px 22px 20px;
   overflow-x: hidden;

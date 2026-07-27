@@ -18,8 +18,6 @@ const postCount = ref(_getCache()?.post_count || 0)
 const typeSummary = ref(_getCache()?.type_summary || {})
 const saves = ref(_getCache()?.saves || [])
 const savedBits = ref(_getCache()?.saved_bits || 0)
-const behaviorFactor = ref(_getCache()?.behavior_factor ?? 1.0)
-const behaviorLabel = ref(_getCache()?.behavior_label || 'building')
 const strangerInferences = ref(_getCache()?.stranger?.inferences || [])
 const strangerConfidence = ref(_getCache()?.stranger?.overall_confidence || 0)
 const loading = ref(!_getCache())
@@ -68,46 +66,27 @@ function bandColor(s) {
   return '#d94841'
 }
 
-// Per-post score, with the same behaviour factor applied as the gauge, so the
-// last post's number matches the headline score exactly.
+// Per-post score — no behaviour-factor scaling, so this always matches the
+// headline gauge exactly (both are plain calcScore on the same k values).
 function postScore(point) {
-  return Math.round(calcScore(point.k_after) * behaviorFactor.value)
+  return Math.round(calcScore(point.k_after))
 }
 // Points this single post cost (negative) or added (positive).
 function postScoreDelta(point) {
-  return postScore(point) - Math.round(calcScore(point.k_before) * behaviorFactor.value)
+  return postScore(point) - Math.round(calcScore(point.k_before))
 }
 
 const score = computed(() => calcScore(finalK.value))
 
-// Behavior-adjusted score — penalises users who consistently rely on the app
-// to clean up risky posts without changing their posting habits over time.
-const adjustedScore = computed(() => Math.round(score.value * behaviorFactor.value))
-
-// How many points the last post cost — reuses the exact per-post delta shown in
-// the breakdown, so the gauge and the last row can never disagree.
-const scoreDelta = computed(() => {
-  if (!trajectory.value.length) return null
-  return postScoreDelta(trajectory.value[trajectory.value.length - 1])
-})
-
-const scoreColor = computed(() => bandColor(adjustedScore.value))
+const scoreColor = computed(() => bandColor(score.value))
 
 const scoreLabel = computed(() => {
-  if (adjustedScore.value >= 70) return 'Low risk'
-  if (adjustedScore.value >= 40) return 'Medium risk'
+  if (score.value >= 70) return 'Low risk'
+  if (score.value >= 40) return 'Medium risk'
   return 'High risk'
 })
 
-const strokeOffset = computed(() => CIRCUMFERENCE * (1 - adjustedScore.value / 100))
-
-const behaviorLabelText = computed(() => ({
-  clean:     'Clean habits',
-  improving: 'Improving',
-  steady:    'Steady habits',
-  reliant:   'Relying on cleanup',
-  building:  'Not enough data yet',
-}[behaviorLabel.value] || behaviorLabel.value))
+const strokeOffset = computed(() => CIRCUMFERENCE * (1 - score.value / 100))
 
 function formatK(k) {
   if (!k) return ''
@@ -144,8 +123,6 @@ function applyCache(data) {
   typeSummary.value = data.type_summary || {}
   saves.value = data.saves || []
   savedBits.value = data.saved_bits || 0
-  behaviorFactor.value = data.behavior_factor ?? 1.0
-  behaviorLabel.value = data.behavior_label || 'building'
   strangerInferences.value = data.stranger?.inferences || []
   strangerConfidence.value = data.stranger?.overall_confidence || 0
 }
@@ -231,21 +208,12 @@ onMounted(load)
               />
             </svg>
             <div class="score-overlay">
-              <span class="score-num" :style="{ color: scoreColor }">{{ adjustedScore }}</span>
+              <span class="score-num" :style="{ color: scoreColor }">{{ score }}</span>
               <span class="score-denom">/ 100</span>
             </div>
           </div>
           <p class="fw-bold small mb-0">Privacy Score
             <span class="score-risk-label" :style="{ color: scoreColor }">· {{ scoreLabel }}</span>
-          </p>
-          <div class="d-flex align-items-center gap-2 flex-wrap justify-content-center mt-1">
-            <span class="behavior-badge" :class="`behavior--${behaviorLabel}`">{{ behaviorLabelText }}</span>
-            <span v-if="behaviorFactor < 1" class="x-small text-secondary">
-              Base: {{ score }} · Habit adjustment: {{ adjustedScore - score }} pts
-            </span>
-          </div>
-          <p v-if="scoreDelta !== null" class="x-small mb-0 mt-1" :class="scoreDelta < 0 ? 'text-danger' : 'text-success'">
-            {{ scoreDelta > 0 ? '+' : '' }}{{ scoreDelta }} points from your last post
           </p>
         </div>
 
@@ -324,7 +292,7 @@ onMounted(load)
             <div v-if="expandedDraftId === point.draft_id" class="post-details">
               <div class="post-detail-row">
                 <span class="x-small text-secondary">Score impact</span>
-                <span class="post-delta" :class="postScoreDelta(point) < 0 ? 'text-danger' : 'text-secondary'">
+                <span class="post-delta" :class="postScoreDelta(point) < 0 ? 'post-delta--down' : 'post-delta--flat'">
                   {{ postScoreDelta(point) === 0 ? '±0' : (postScoreDelta(point) > 0 ? '+' : '') + postScoreDelta(point) }} pts
                 </span>
                 <span v-if="point.cleaned" class="cleaned-badge">cleaned</span>
@@ -362,7 +330,7 @@ onMounted(load)
 
 .score-panel {
   border: 1px solid var(--trace-line, #e8edf5);
-  border-radius: 16px;
+  border-radius: var(--trace-radius, 14px);
   background: linear-gradient(180deg, #ffffff, #f8fbff);
   padding: 10px 12px 12px;
 }
@@ -402,6 +370,7 @@ onMounted(load)
 .tip-card {
   background: #fffbf0;
   border: 1px solid #f3d48b;
+  border-radius: var(--trace-radius, 14px);
 }
 .tip-count {
   font-size: 0.68rem;
@@ -419,6 +388,7 @@ onMounted(load)
 .post-card {
   background: #fafbfc;
   border: 1px solid var(--trace-line, #e8edf5);
+  border-radius: var(--trace-radius, 14px);
   overflow: hidden;
 }
 .post-toggle {
@@ -449,10 +419,22 @@ onMounted(load)
   overflow: hidden;
 }
 .post-delta {
-  font-size: 0.85rem;
-  font-weight: 800;
+  font-size: 0.62rem;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+.post-delta--down {
+  color: var(--trace-danger);
+  background: #fde8e7;
+  border: 1px solid #f5b8b5;
+}
+.post-delta--flat {
+  color: var(--trace-success);
+  background: #e6f7ef;
+  border: 1px solid #a8dfc3;
 }
 .post-date {
   margin-left: auto;
@@ -496,6 +478,7 @@ onMounted(load)
 .saves-card {
   background: #f0faf5;
   border: 1px solid #a8dfc3;
+  border-radius: var(--trace-radius, 14px);
 }
 .saves-title {
   color: #198c68;
@@ -523,22 +506,11 @@ onMounted(load)
   border-radius: 999px;
   white-space: nowrap;
 }
-.behavior-badge {
-  font-size: 0.68rem;
-  font-weight: 700;
-  padding: 2px 9px;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-.behavior--clean     { background: #e6f7ef; color: #198c68; border: 1px solid #a8dfc3; }
-.behavior--improving { background: #e6f7ef; color: #198c68; border: 1px solid #a8dfc3; }
-.behavior--steady    { background: #fff5df; color: #936509; border: 1px solid #f3d48b; }
-.behavior--reliant   { background: #fff0ee; color: #d94841; border: 1px solid #f5b8b5; }
-.behavior--building  { background: #f1f3f5; color: #6c757d; border: 1px solid #dee2e6; }
 .stranger-card {
   background: #1a1d2b;
   color: #f2f4f8;
   border: 1px solid #2c3145;
+  border-radius: var(--trace-radius, 14px);
 }
 .stranger-title {
   color: #fff;
