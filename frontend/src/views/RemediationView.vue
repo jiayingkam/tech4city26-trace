@@ -531,12 +531,20 @@ async function sendChat(text) {
         <p class="small mb-0"><strong>Safer move:</strong> {{ teachableMoment.safer_action }}</p>
 
         <div class="chat-section mt-3">
-          <button
-            type="button"
-            class="chat-expand-btn"
-            aria-label="Expand chat"
-            @click="chatExpanded = true"
-          >⤢</button>
+          <div class="chat-section-head">
+            <span class="chat-section-title">Ask a question</span>
+            <button
+              type="button"
+              class="chat-expand-btn"
+              aria-label="Expand chat"
+              @click="chatExpanded = true"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
+          </div>
           <TeachableChatPanel
             v-model="chatInput"
             :messages="chatMessages"
@@ -699,17 +707,29 @@ async function sendChat(text) {
   border-top: 1px solid var(--trace-line);
   padding-top: 10px;
 }
+.chat-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.chat-section-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #667085;
+}
 .chat-expand-btn {
-  position: absolute;
-  top: -4px;
-  right: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
-  font-size: 1.05rem;
-  line-height: 1;
-  color: #667085;
-  padding: 4px 6px;
+  color: #98a2b3;
+  padding: 2px;
   cursor: pointer;
+}
+.chat-expand-btn:hover {
+  color: #667085;
 }
 .chat-fullscreen {
   position: absolute;
