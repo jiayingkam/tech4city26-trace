@@ -7,3 +7,4 @@ requests==2.32.3
 flask-jwt-extended==4.7.1
 gunicorn==23.0.0
 google-cloud-storage
+pillow==12.1.1

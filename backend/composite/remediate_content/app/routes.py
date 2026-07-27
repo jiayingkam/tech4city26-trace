@@ -4,7 +4,7 @@ import tempfile
 import threading
 import requests
 from flask import Blueprint, request, jsonify, send_file
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, ImageOps
 
 from flask_jwt_extended import get_jwt_identity
 from trace_auth import forwarded_auth_headers
@@ -110,6 +110,14 @@ def apply_remediation(original_path, edits):
     bucket under a blob name derived from original_path. Returns that blob
     name. Whatever format the original was opened as is preserved on save."""
     img = Image.open(original_path)
+    original_format = img.format  # exif_transpose() below returns a fresh
+                                   # image that doesn't carry this over
+    # Many phone cameras store the pixel data landscape-oriented and rely on
+    # an EXIF Orientation tag to display it upright — exif_transpose() bakes
+    # that rotation into the actual pixels. Must happen before the EXIF-less
+    # save below, or the output loses the tag telling viewers to rotate it
+    # and comes out sideways with no way to recover the correct orientation.
+    img = ImageOps.exif_transpose(img)
 
     for e in edits:
         region = e.get("region_affected")
@@ -121,7 +129,7 @@ def apply_remediation(original_path, edits):
 
     blob_name = os.path.basename(original_path)
     buf = io.BytesIO()
-    img.save(buf, format=img.format)  # not passing exif= strips the GPS/EXIF on save
+    img.save(buf, format=original_format)  # not passing exif= strips the GPS/EXIF on save
     trace_storage.upload_bytes(blob_name, buf.getvalue())
     return blob_name
 

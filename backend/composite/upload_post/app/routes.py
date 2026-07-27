@@ -1,8 +1,10 @@
+import io
 import os
 import requests
 from flask import Blueprint, request, jsonify, Response
 from flask_jwt_extended import get_jwt_identity
 from werkzeug.utils import secure_filename
+from PIL import Image, ImageOps
 from trace_auth import forwarded_auth_headers
 import trace_storage
 
@@ -12,6 +14,34 @@ CONTENT_DRAFTS_SERVICE_URL = os.environ.get("CONTENT_DRAFTS_SERVICE_URL", "http:
 
 VALID_CONTENT_TYPES = ("text", "image", "video")
 DEFAULT_EXTENSION = ".jpg"
+
+
+def _normalize_orientation(raw_bytes: bytes) -> bytes:
+    """Bakes any EXIF orientation into the actual pixel data at upload time.
+
+    Phone cameras commonly store the sensor's raw (often landscape) pixel grid
+    plus an EXIF Orientation tag telling viewers to rotate it for display.
+    Left as-is, every downstream consumer disagrees about the image's real
+    dimensions: scan_draft's Vision API calls and Pillow measurements read the
+    raw grid, while a browser <img> auto-rotates for display — so a detection
+    box computed correctly against the raw grid lands off-canvas once shown
+    against the rotated display size (and can end up entirely outside the
+    visible photo). Normalizing once here means every later step — scanning,
+    blurring, downloading, posting — works against the same upright image.
+
+    Falls back to the untouched original bytes on any failure (not a valid/
+    parseable image, no EXIF, etc.) — this must never block an otherwise-good
+    upload.
+    """
+    try:
+        img = Image.open(io.BytesIO(raw_bytes))
+        original_format = img.format
+        img = ImageOps.exif_transpose(img)
+        buf = io.BytesIO()
+        img.save(buf, format=original_format)
+        return buf.getvalue()
+    except Exception:
+        return raw_bytes
 
 
 def _safe_detail(resp):
@@ -114,7 +144,10 @@ def upload_draft():
         relative_path = f"storage/originals/{draft_id}{ext}"
 
         try:
-            trace_storage.upload_bytes(relative_path, file.read(), content_type=file.mimetype)
+            file_bytes = file.read()
+            if content_type == "image":
+                file_bytes = _normalize_orientation(file_bytes)
+            trace_storage.upload_bytes(relative_path, file_bytes, content_type=file.mimetype)
         except Exception as e:
             requests.delete(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}", headers=auth_headers)
             return jsonify({"error": "failed to store file", "detail": str(e)}), 502
