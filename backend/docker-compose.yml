@@ -155,6 +155,8 @@ services:
         condition: service_healthy
       detections:
         condition: service_healthy
+      exposure_profiles:
+        condition: service_healthy
 
   generate_teachable_moment:
     build:

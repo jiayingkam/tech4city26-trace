@@ -2,7 +2,7 @@ import json
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import get_jwt_identity
 from .db import db
-from .models import ExposureProfile
+from .models import ExposureProfile, CaptionObservationCache
 
 bp = Blueprint("exposure_profiles", __name__)
 
@@ -133,6 +133,98 @@ def delete_profile(user_id):
         db.session.delete(profile)
         db.session.commit()
     return "", 204
+
+
+@bp.route("/captions/<fingerprint>/observations", methods=["GET"])
+def get_caption_observations(fingerprint):
+    """Get the cached LLM-extracted observations for a caption's fingerprint.
+    404 if this exact caption text has never been extracted before.
+    ---
+    tags:
+      - Exposure Profiles
+    security:
+      - BearerAuth: []
+    parameters:
+      - in: path
+        name: fingerprint
+        type: string
+        required: true
+        description: Hash of the caption text (the caller computes this).
+    responses:
+      200:
+        description: The cached observations.
+        schema:
+          id: CaptionObservationCache
+          type: object
+          properties:
+            fingerprint:
+              type: string
+            observations:
+              type: array
+              items:
+                type: object
+            updated_at:
+              type: string
+              format: date-time
+      404:
+        description: No cached extraction for this fingerprint.
+    """
+    cache = db.session.get(CaptionObservationCache, fingerprint)
+    if cache is None:
+        return jsonify({"error": "not cached"}), 404
+    return jsonify(cache.to_dict()), 200
+
+
+@bp.route("/captions/<fingerprint>/observations", methods=["PUT"])
+def put_caption_observations(fingerprint):
+    """Store the LLM-extracted observations for a caption's fingerprint (upsert).
+    Called by detect_mosaic_risk right after it runs the caption LLM extraction,
+    so every later mosaic rebuild can reuse the result instead of re-running it.
+    ---
+    tags:
+      - Exposure Profiles
+    security:
+      - BearerAuth: []
+    consumes:
+      - application/json
+    parameters:
+      - in: path
+        name: fingerprint
+        type: string
+        required: true
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - observations
+          properties:
+            observations:
+              type: array
+              items:
+                type: object
+    responses:
+      200:
+        description: The stored cache entry.
+        schema:
+          $ref: "#/definitions/CaptionObservationCache"
+      400:
+        description: Request body is not a JSON object or is missing 'observations'.
+    """
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or "observations" not in data:
+        return jsonify({"error": "request body must be a JSON object with an 'observations' field"}), 400
+
+    obs_text = json.dumps(data["observations"])
+    cache = db.session.get(CaptionObservationCache, fingerprint)
+    if cache is None:
+        cache = CaptionObservationCache(fingerprint=fingerprint, observations_json=obs_text)
+        db.session.add(cache)
+    else:
+        cache.observations_json = obs_text
+    db.session.commit()
+    return jsonify(cache.to_dict()), 200
 
 
 # In professional setups, a Load Balancer and/or caller pings this /health URL every few seconds.

@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 import re
@@ -17,6 +18,7 @@ bp = Blueprint("detect_mosaic_risk", __name__)
 
 CONTENT_DRAFTS_SERVICE_URL = os.environ.get("CONTENT_DRAFTS_SERVICE_URL", "http://CONTENT_DRAFTS:5002")
 DETECTIONS_SERVICE_URL = os.environ.get("DETECTIONS_SERVICE_URL", "http://DETECTIONS:5003")
+EXPOSURE_PROFILES_SERVICE_URL = os.environ.get("EXPOSURE_PROFILES_SERVICE_URL", "http://exposure_profiles:5005")
 
 # Maps detection category → (Observation.kind, Observation.target)
 _CATEGORY_KIND_TARGET: dict[str, tuple[str, str]] = {
@@ -34,9 +36,18 @@ _HEDGE_WORDS = (
     "possible", "possibly", "unclear", "too unclear",
 )
 
-# Fraction of bits retained after a user accepts a cleanup fix (blur/strip).
-# Blurring reduces contextual signal significantly but the surrounding scene still leaks.
-_CLEANUP_RESIDUAL = 0.15
+# Fraction of bits retained after a user accepts a cleanup fix, by category.
+# remediate_content's apply_remediation() treats these very differently: metadata
+# findings are resolved by simply not re-writing EXIF on save — the GPS/location
+# data is genuinely gone, not approximated — so nothing should still count against
+# the user. Every other category (document/location/contact/financial/credentials)
+# goes through a real pixel-space Gaussian blur, which is a strong but imperfect
+# redaction — surrounding scene/context can still leak signal, hence a nonzero
+# residual for those.
+_CLEANUP_RESIDUAL_BY_CATEGORY: dict[str, float] = {
+    "metadata": 0.0,
+}
+_CLEANUP_RESIDUAL_DEFAULT = 0.15
 
 # Proper-noun-looking words that are NOT concrete identifiers (common in scanner descriptions)
 _GENERIC_CAPS = {
@@ -131,7 +142,11 @@ def _detection_to_observation(det: dict) -> Observation:
     kind, target = _CATEGORY_KIND_TARGET.get(category, ("possession", "identity"))
     detail = det.get("detail") or category
     raw_bits = _detection_bits(det)
-    bits = raw_bits * _CLEANUP_RESIDUAL if det.get("resolution") == "accepted" else raw_bits
+    if det.get("resolution") == "accepted":
+        residual = _CLEANUP_RESIDUAL_BY_CATEGORY.get(category, _CLEANUP_RESIDUAL_DEFAULT)
+        bits = raw_bits * residual
+    else:
+        bits = raw_bits
     return Observation(
         kind=kind,
         target=target,
@@ -142,13 +157,60 @@ def _detection_to_observation(det: dict) -> Observation:
     )
 
 
+def _text_fingerprint(text: str) -> str:
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()[:32]
+
+
+def _extract_observations_cached(text: str) -> list[Observation]:
+    """Same result as extract_observations(text), persisted by a hash of the text.
+
+    The caption LLM call is the expensive, non-deterministic part of every mosaic
+    rebuild — a resolved post's caption never changes, so replaying it against the
+    LLM on every rebuild for every post in a user's history is the dominant cost of
+    a slow load. Caching by text hash also means identical captions across posts
+    (or repeated across rebuilds) always return the same result, removing the
+    run-to-run score jitter identical captions used to show.
+
+    Best-effort: any cache read/write failure just falls through to calling the
+    LLM directly, same as before this existed.
+    """
+    if not text or not text.strip():
+        return []
+
+    fingerprint = _text_fingerprint(text)
+    headers = _auth_headers()
+
+    try:
+        resp = requests.get(
+            f"{EXPOSURE_PROFILES_SERVICE_URL}/captions/{fingerprint}/observations",
+            headers=headers, timeout=5,
+        )
+        if resp.status_code == 200:
+            return [Observation(**o) for o in resp.json().get("observations", [])]
+    except requests.RequestException:
+        pass
+
+    observations = extract_observations(text)
+
+    try:
+        requests.put(
+            f"{EXPOSURE_PROFILES_SERVICE_URL}/captions/{fingerprint}/observations",
+            json={"observations": [o.model_dump() for o in observations]},
+            headers=headers, timeout=5,
+        )
+    except requests.RequestException:
+        pass
+
+    return observations
+
+
 def _observations_for_draft(draft: dict, detections: list[dict]) -> list[Observation]:
     """Extract all observations for one draft: caption text + image detections combined.
 
     Always processes both sources so caption observations are never silently dropped
     when scan_draft also found something in the image.
     """
-    text_obs = extract_observations(draft.get("text_content") or "")
+    text_obs = _extract_observations_cached(draft.get("text_content") or "")
     image_obs = _dedup_observations([
         _detection_to_observation(d) for d in detections if d.get("detail")
     ])
@@ -294,7 +356,7 @@ def check_mosaic_risk(owner_id):
         return jsonify({"error": "draft does not belong to this user"}), 403
 
     # Layer 1 — extract typed observations from the draft's text caption
-    text_observations = extract_observations(draft.get("text_content") or "")
+    text_observations = _extract_observations_cached(draft.get("text_content") or "")
 
     # Convert image detections (from scan_draft) to Observation objects so every
     # bit that moves k is represented in the observations list — enforces the
@@ -459,7 +521,7 @@ def mosaic_trajectory(owner_id):
         # Published post (clean, or partially/fully remediated).
         # _detection_to_observation already gives residual bits to accepted detections.
         image_detections = [d for d in detections if d.get("detail")]
-        text_obs = extract_observations(draft.get("text_content") or "")
+        text_obs = _extract_observations_cached(draft.get("text_content") or "")
         image_obs = _dedup_observations([_detection_to_observation(d) for d in image_detections])
         post_observations = text_obs + image_obs
 

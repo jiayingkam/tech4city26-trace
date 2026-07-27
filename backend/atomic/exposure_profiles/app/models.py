@@ -31,3 +31,32 @@ class ExposureProfile(db.Model):
             "profile": json.loads(self.profile_json) if self.profile_json else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class CaptionObservationCache(db.Model):
+    """Caches detect_mosaic_risk's LLM-extracted observations for one caption's text.
+
+    Keyed by a hash of the caption itself (not draft_id) — a resolved post's caption
+    never changes, and re-running the caption LLM call on every mosaic rebuild for
+    every post in a user's history is the dominant cost of a slow rebuild. Keying by
+    text hash (rather than draft) also means identical captions across posts share one
+    cache entry, and removes the run-to-run score jitter identical captions used to
+    show (the same text now always returns the same cached extraction).
+    """
+    __tablename__ = "caption_observation_cache"
+
+    fingerprint = db.Column(db.String(64), primary_key=True)
+    observations_json = db.Column(db.UnicodeText, nullable=False)
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    def to_dict(self):
+        return {
+            "fingerprint": self.fingerprint,
+            "observations": json.loads(self.observations_json),
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
