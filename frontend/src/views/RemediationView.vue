@@ -147,10 +147,16 @@ function drawPreview() {
 // baked into the downloaded photo.
 function drawEmojiPreview(ctx, region) {
   const { x, y, w, h } = region
-  const dim = Math.max(w, h)
+  // Sized to the box's SMALLER side and centered — not stretched to fill an
+  // arbitrary w x h — so dragging the box into a non-square shape just adds
+  // padding around a still-circular face instead of squashing it into an
+  // oval (matches _generate_emoji server-side).
+  const dim = Math.min(w, h)
   const cx = x + w / 2
   const cy = y + h / 2
   const r = dim / 2
+  const top = cy - r
+  const left = cx - r
 
   ctx.save()
   ctx.beginPath()
@@ -160,8 +166,8 @@ function drawEmojiPreview(ctx, region) {
 
   ctx.fillStyle = '#462d0a'
   const eyeR = Math.max(1, dim / 12)
-  const eyeY = y + dim * 0.38
-  for (const eyeX of [x + dim * 0.30, x + dim * 0.70]) {
+  const eyeY = top + dim * 0.38
+  for (const eyeX of [left + dim * 0.30, left + dim * 0.70]) {
     ctx.beginPath()
     ctx.arc(eyeX, eyeY, eyeR, 0, Math.PI * 2)
     ctx.fill()
@@ -171,7 +177,7 @@ function drawEmojiPreview(ctx, region) {
   ctx.strokeStyle = '#462d0a'
   ctx.lineWidth = Math.max(2, dim / 18)
   ctx.lineCap = 'round'
-  ctx.arc(cx, y + dim * 0.55, dim * 0.28, 0.35 * Math.PI, 0.65 * Math.PI)
+  ctx.arc(cx, top + dim * 0.55, dim * 0.28, 0.35 * Math.PI, 0.65 * Math.PI)
   ctx.stroke()
   ctx.restore()
 }
@@ -398,6 +404,10 @@ async function removeManualEdit(edit) {
     await deleteEdit(edit.edit_id)
     proposedEdits.value = proposedEdits.value.filter((e) => e.edit_id !== edit.edit_id)
     manualEditIds.delete(edit.edit_id)
+    // The canvas is a plain bitmap — removing the edit from the array alone
+    // only hides its overlay box; whatever was already painted (blur/emoji)
+    // stays baked into the pixels until the next full redraw.
+    drawPreview()
   } catch (err) {
     error.value = err.message || 'Could not remove that area.'
   }
@@ -521,7 +531,7 @@ async function sendChat(text) {
             :class="addMode === 'face' ? 'btn-secondary' : 'btn-outline-primary'"
             @click="toggleAddMode('face')"
           >
-            {{ addMode === 'face' ? 'Cancel marking' : 'Cover a missed face' }}
+            {{ addMode === 'face' ? 'Cancel marking' : 'Mark a missed face' }}
           </button>
         </div>
         <p v-if="addMode" class="soft-note text-center mb-3">Drag on the photo to draw a box around it.</p>
@@ -602,7 +612,7 @@ async function sendChat(text) {
           </button>
         </div>
         <p class="x-small text-secondary mb-2">
-          A face on its own isn't flagged as a risk — turn any of these on if you'd like to cover it anyway.
+          Covering faces boosts your privacy score and gives you some peace of mind.
         </p>
         <div v-for="edit in faceEdits" :key="edit.edit_id" class="form-check form-switch fix-row">
           <input
