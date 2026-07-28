@@ -236,9 +236,7 @@ async function sendChat(text) {
           class="finding-box"
           :style="boxStyle(unionRegion(group))"
         >
-          <span class="finding-marker-cluster">
-            <span v-for="d in group" :key="d.idx" class="finding-marker finding-marker--inline">{{ d.idx + 1 }}</span>
-          </span>
+          <span class="finding-marker">{{ gi + 1 }}</span>
         </div>
       </div>
 
@@ -258,9 +256,7 @@ async function sendChat(text) {
           <p class="fw-bold small mb-2">In your photo</p>
           <ul class="list-unstyled small mb-0">
             <li v-for="(group, gi) in imageFindingGroups" :key="gi" class="mb-1 d-flex align-items-start gap-2">
-              <span class="finding-marker-group">
-                <span v-for="d in group" :key="d.idx" class="finding-marker finding-marker--inline">{{ d.idx + 1 }}</span>
-              </span>
+              <span class="finding-marker finding-marker--inline">{{ gi + 1 }}</span>
               <span><strong>{{ groupLabel(group) }}:</strong> {{ groupText(group, gi) }}</span>
             </li>
           </ul>
@@ -410,24 +406,6 @@ async function sendChat(text) {
   flex-shrink: 0;
   margin-top: 1px;
   box-shadow: none;
-}
-.finding-marker-group {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  flex-shrink: 0;
-}
-/* On-image version of the same marker row — anchored to the merged box's
-   corner (see the edge-clipping note on .finding-marker) rather than
-   flowing inline like .finding-marker-group does in the list below. */
-.finding-marker-cluster {
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  display: flex;
-  gap: 3px;
-  flex-wrap: wrap;
-  max-width: calc(100% - 8px);
 }
 .finding-panel {
   padding: 12px 14px;
