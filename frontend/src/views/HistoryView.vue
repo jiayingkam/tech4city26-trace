@@ -102,6 +102,10 @@ const STATUS_LABELS = {
   rejected: 'Rejected',
   quarantined: 'Quarantined',
   pending: 'Pending',
+  // A first-time image/text scan runs synchronously and can take several
+  // seconds — this is what a post looks like in that window, distinct from
+  // "pending" (already scanned, just not confirmed yet — see handleCardTap).
+  scanning: 'Scanning…',
 }
 
 const TABS = [
@@ -230,6 +234,14 @@ function handleCardTap(post) {
     openQuarantinedPost(post)
   } else if (post.status === 'pending') {
     openPendingPost(post)
+  } else if (post.status === 'scanning') {
+    // Nothing to open yet — the scan (several seconds for a first-time
+    // image scan) hasn't produced anything to review or resume. Calling
+    // openPendingPost here would hit remediate_content with zero findings
+    // and surface a raw "nothing to remediate" error, so just refresh the
+    // list instead; by the time someone deliberately taps back in, the scan
+    // has usually finished and this card will show its real status.
+    load()
   } else {
     openClosedPost(post)
   }
@@ -577,6 +589,7 @@ function cooldownRemaining(post) {
 .status-rejected { color: var(--trace-danger); }
 .status-quarantined { color: #936509; }
 .status-pending { color: var(--trace-primary-dark); }
+.status-scanning { color: var(--trace-muted, #7a8199); }
 .thumb {
   width: 56px;
   height: 56px;

@@ -275,10 +275,31 @@ def process_draft(draft_id):
         description: A downstream call failed — fetching detections/draft, starting/advancing the video scan, recording a detection, creating the quarantine hold, or applying remediation. See the response body's error/detail for which.
     """
     auth_headers = forwarded_auth_headers(request)
-    # The check-then-scan below has to happen under a per-draft lock: two
-    # concurrent calls (e.g. a client retry firing while the first, slow
-    # scan is still running) could otherwise both see "no detections yet"
-    # and both run a full scan, duplicating every finding.
+
+    # Needed before the lock to know whether this draft's scan runs
+    # synchronously below (image/text) so that window can be marked via
+    # scan_status — video already manages this field itself for its own
+    # async job and is deliberately left untouched here.
+    content_type_resp = requests.get(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}", headers=auth_headers)
+    if content_type_resp.status_code == 404:
+        return jsonify({"error": "draft not found"}), 404
+    if content_type_resp.status_code != 200:
+        return jsonify({"error": "failed to fetch draft"}), 502
+    content_type = content_type_resp.json()["content_type"]
+
+    # The whole routing decision below — not just the scan — has to happen
+    # under a per-draft lock: a client retry firing process_draft twice in
+    # quick succession could otherwise both see "no detections yet" and both
+    # scan (duplicating every finding), or — even with the scan itself
+    # de-duplicated — both independently see the same high-risk detections
+    # afterward and both create a SEPARATE quarantine hold for the same
+    # draft. quarantine_draft() has its own idempotency check too (belt and
+    # braces), but closing the race here at its actual source is what
+    # prevents a duplicate hold from ever being created in the first place —
+    # a stray, untouched duplicate otherwise permanently stuck the post as
+    # "quarantined" in History no matter what the user did with the one they
+    # could actually see (manage_history's status logic gives any unresolved
+    # "held" item absolute priority).
     with _draft_scan_lock(draft_id):
         # fetch detections once; routing decision is based on the worst score present
         resp = requests.get(f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections", headers=auth_headers)
@@ -287,73 +308,98 @@ def process_draft(draft_id):
         detections = resp.json()
 
         if not detections:
+            # An image scan (OCR + vision + LLM calls) runs synchronously
+            # right here and can take several seconds. Without a persisted
+            # signal, a draft mid-scan and a draft that's genuinely been
+            # scanned clean both look identical to manage_history (zero
+            # detections, no quarantine activity) — it would misreport a
+            # post as "accepted" if History is checked during that window,
+            # before anyone has actually reviewed anything.
+            if content_type != "video":
+                requests.patch(
+                    f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}",
+                    json={"scan_status": "running"},
+                    headers=auth_headers,
+                )
             # not scanned yet this call — scan once, then continue with the result
             detections, error = run_scan(draft_id)
             if error:
+                if content_type != "video":
+                    requests.patch(
+                        f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}",
+                        json={"scan_status": "failed"},
+                        headers=auth_headers,
+                    )
                 return error
+            if content_type != "video":
+                requests.patch(
+                    f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}",
+                    json={"scan_status": "done"},
+                    headers=auth_headers,
+                )
 
-    # Video's on-screen content is scanned by scan_video as an async job, so
-    # a video draft can have SOME detections already (e.g. from its caption)
-    # while the video file itself is still mid-scan. Routing has to wait for
-    # that job to actually finish — deciding "clear" or "remediate" from a
-    # partial detection set could wave a dangerous video through while its
-    # scan is still running.
-    draft_resp = requests.get(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}", headers=auth_headers)
-    if draft_resp.status_code == 404:
-        return jsonify({"error": "draft not found"}), 404
-    if draft_resp.status_code != 200:
-        return jsonify({"error": "failed to fetch draft"}), 502
-    draft = draft_resp.json()
+        # Video's on-screen content is scanned by scan_video as an async job,
+        # so a video draft can have SOME detections already (e.g. from its
+        # caption) while the video file itself is still mid-scan. Routing
+        # has to wait for that job to actually finish — deciding "clear" or
+        # "remediate" from a partial detection set could wave a dangerous
+        # video through while its scan is still running.
+        draft_resp = requests.get(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}", headers=auth_headers)
+        if draft_resp.status_code == 404:
+            return jsonify({"error": "draft not found"}), 404
+        if draft_resp.status_code != 200:
+            return jsonify({"error": "failed to fetch draft"}), 502
+        draft = draft_resp.json()
 
-    if draft["content_type"] == "video" and draft.get("scan_status") != "done":
-        # Nudges the job forward (starts it if it hasn't, polls it one step
-        # if it has) so repeated client polling of this same endpoint makes
-        # progress, rather than just re-checking a status that would
-        # otherwise never change on its own.
-        video_resp = requests.post(
-            f"{SCAN_VIDEO_SERVICE_URL}/drafts/{draft_id}/scan", headers=auth_headers
-        )
-        if video_resp.status_code not in (200, 201, 202):
-            return jsonify({"error": "failed to advance video scan"}), 502
-        video_status = video_resp.json().get("status")
-        if video_status != "done":
-            return jsonify({"draft_id": draft_id, "outcome": "scanning", "status": video_status}), 202
-        # finished on this call — route using the now-complete detection set
-        detections = video_resp.json().get("detections", [])
+        if draft["content_type"] == "video" and draft.get("scan_status") != "done":
+            # Nudges the job forward (starts it if it hasn't, polls it one
+            # step if it has) so repeated client polling of this same
+            # endpoint makes progress, rather than just re-checking a status
+            # that would otherwise never change on its own.
+            video_resp = requests.post(
+                f"{SCAN_VIDEO_SERVICE_URL}/drafts/{draft_id}/scan", headers=auth_headers
+            )
+            if video_resp.status_code not in (200, 201, 202):
+                return jsonify({"error": "failed to advance video scan"}), 502
+            video_status = video_resp.json().get("status")
+            if video_status != "done":
+                return jsonify({"draft_id": draft_id, "outcome": "scanning", "status": video_status}), 202
+            # finished on this call — route using the now-complete detection set
+            detections = video_resp.json().get("detections", [])
 
-    if not detections:
-        return jsonify({
-            "draft_id": draft_id,
-            "outcome": "clear",
-            "message": "no sensitive content detected",
-        }), 200
+        if not detections:
+            return jsonify({
+                "draft_id": draft_id,
+                "outcome": "clear",
+                "message": "no sensitive content detected",
+            }), 200
 
-    # any region at score >=4 puts the whole draft on hold for human review
-    if any(d["exposure_score"] >= 4 for d in detections):
-        q_resp = requests.post(
-            f"{QUARANTINE_HIGH_RISK_SERVICE_URL}/drafts/{draft_id}/quarantine",
+        # any region at score >=4 puts the whole draft on hold for human review
+        if any(d["exposure_score"] >= 4 for d in detections):
+            q_resp = requests.post(
+                f"{QUARANTINE_HIGH_RISK_SERVICE_URL}/drafts/{draft_id}/quarantine",
+                headers=auth_headers,
+            )
+            if q_resp.status_code not in (200, 201):
+                return jsonify({"error": "quarantine failed", "detail": q_resp.json()}), 502
+            return jsonify({
+                "draft_id": draft_id,
+                "outcome": "quarantined",
+                "quarantine": q_resp.json(),
+            }), q_resp.status_code
+
+        # all scores <=3 — safe to auto-remediate
+        r_resp = requests.post(
+            f"{REMEDIATE_CONTENT_SERVICE_URL}/drafts/{draft_id}/remediate",
             headers=auth_headers,
         )
-        if q_resp.status_code != 201:
-            return jsonify({"error": "quarantine failed", "detail": q_resp.json()}), 502
+        if r_resp.status_code != 200:
+            return jsonify({"error": "remediation failed", "detail": r_resp.json()}), 502
         return jsonify({
             "draft_id": draft_id,
-            "outcome": "quarantined",
-            "quarantine": q_resp.json(),
-        }), 201
-
-    # all scores <=3 — safe to auto-remediate
-    r_resp = requests.post(
-        f"{REMEDIATE_CONTENT_SERVICE_URL}/drafts/{draft_id}/remediate",
-        headers=auth_headers,
-    )
-    if r_resp.status_code != 200:
-        return jsonify({"error": "remediation failed", "detail": r_resp.json()}), 502
-    return jsonify({
-        "draft_id": draft_id,
-        "outcome": "remediated",
-        "remediation": r_resp.json(),
-    }), 200
+            "outcome": "remediated",
+            "remediation": r_resp.json(),
+        }), 200
 
 
 # In professional setups, a Load Balancer and/or caller pings this /health URL every few seconds.

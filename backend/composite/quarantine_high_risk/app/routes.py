@@ -19,13 +19,21 @@ def _build_reason(detections):
 
 def _set_high_risk_resolutions(draft_id, resolution, auth_headers):
     """Quarantine holds are decided per-draft, not per-detection, so release/
-    delete resolve every detection that caused the hold (exposure >= 4) in
-    one go — best-effort, same as remediate_content's equivalent helper."""
+    delete resolve EVERY still-unresolved detection for the draft — not just
+    the ones that caused the hold (exposure >= 4). A draft can carry other,
+    lower-risk detections alongside those (a face, a minor OCR finding) that
+    the quarantine flow never otherwise touches; leaving those permanently
+    unresolved means manage_history's _derive_status sees an unresolved
+    detection forever and the post gets stuck (misleadingly showing
+    "pending", or "quarantined" again if paired with a stray quarantine
+    item), never actually landing on "accepted"/"rejected". Mirrors
+    remediate_content's confirm_remediation, which has this exact same
+    catch-all for the same reason."""
     resp = requests.get(f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections", headers=auth_headers)
     if resp.status_code != 200:
         return
     for d in resp.json():
-        if d["exposure_score"] >= 4:
+        if d.get("resolution") is None:
             requests.patch(
                 f"{DETECTIONS_SERVICE_URL}/detections/{d['detection_id']}",
                 json={"resolution": resolution},
@@ -36,7 +44,7 @@ def _set_high_risk_resolutions(draft_id, resolution, auth_headers):
 @bp.route("/drafts/<draft_id>/quarantine", methods=["POST"])
 def quarantine_draft(draft_id):
     """Place a draft on quarantine hold.
-    Fetches the draft's high-risk detections (exposure_score >= 4) and, if any exist, creates a quarantine hold for the draft with a plain-language reason built from their categories.
+    Fetches the draft's high-risk detections (exposure_score >= 4) and, if any exist, creates a quarantine hold for the draft with a plain-language reason built from their categories. Idempotent — if the draft already has a held hold, returns that instead of creating a duplicate.
     ---
     tags:
       - Quarantine
@@ -48,6 +56,10 @@ def quarantine_draft(draft_id):
         type: string
         required: true
     responses:
+      200:
+        description: An already-held quarantine hold existed for this draft; returned as-is instead of creating a duplicate.
+        schema:
+          $ref: "#/definitions/QuarantineItem"
       201:
         description: Quarantine hold created.
         schema:
@@ -78,6 +90,23 @@ def quarantine_draft(draft_id):
         description: Failed to fetch detections from the detections service, or failed to create the quarantine item in the quarantine service.
     """
     auth_headers = forwarded_auth_headers(request)
+
+    # Idempotency guard: process_draft's own lock is the primary defense
+    # against calling this twice for one draft (a network retry firing it
+    # in quick succession), but this is cheap belt-and-braces protection for
+    # any other caller too — reuse an existing hold instead of creating a
+    # second one. A duplicate "held" item left untouched by whatever the
+    # user does with the one they can actually see permanently stuck the
+    # post as "quarantined" in History, since manage_history's status logic
+    # gives any unresolved held item absolute priority.
+    existing_resp = requests.get(
+        f"{QUARANTINE_ITEMS_SERVICE_URL}/drafts/{draft_id}/quarantine", headers=auth_headers
+    )
+    if existing_resp.status_code == 200:
+        existing_held = next((q for q in existing_resp.json() if q["state"] == "held"), None)
+        if existing_held:
+            return jsonify(existing_held), 200
+
     # 1. fetch detections, high risk only (exposure >= 4)
     resp = requests.get(f"{DETECTIONS_SERVICE_URL}/drafts/{draft_id}/detections", headers=auth_headers)
     if resp.status_code != 200:

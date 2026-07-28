@@ -81,19 +81,46 @@ def _summarize_flags(detections):
     return "Flagged: " + ", ".join(categories) + "."
 
 
-def _derive_status(detections, quarantine_items):
+def _derive_status(detections, quarantine_items, scan_status=None):
     """One overall outcome per post, in priority order:
     1. Currently held in quarantine, cooldown still running -> "quarantined".
-    2. Anything still unresolved (no explicit accept/reject yet) -> "pending".
-    3. Anything rejected (fixed/withheld) takes priority over accepted, since
+    2. Mid-edit from quarantine (state "edited") with still-unresolved
+       detections -> also "quarantined". quarantine_high_risk's /edit
+       endpoint flips state to "edited" the instant editing STARTS (so the
+       cooldown/hold no longer blocks the Clean-up screen) — well before
+       the user has actually confirmed or cancelled anything. Without this,
+       a post reads as "pending" (or worse, gets stuck there if the user
+       abandons editing) the moment the edit screen is merely opened,
+       before there's any real outcome to report.
+    3. Anything still unresolved (no explicit accept/reject yet) -> "pending".
+       This specifically means "scanned, findings proposed, not yet
+       confirmed/dismissed" — HistoryView's pending-card handler assumes
+       exactly that and calls straight into remediate_content to resume the
+       proposal, so a genuinely different situation (see #6) must NOT also
+       report "pending", or that call fails with "nothing to remediate"
+       against a draft that has no findings to resume yet.
+    4. Anything rejected (fixed/withheld) takes priority over accepted, since
        catching and correcting an exposure is the more important signal to
        surface than the things left as-is alongside it.
-    4. Otherwise, if it was released from quarantine or every flag was
+    5. Otherwise, if it was released from quarantine or every flag was
        accepted as-is -> "accepted".
-    5. No flags at all -> "accepted" (nothing to resolve)."""
+    6. Zero detections AND a synchronous (image/text) scan is still running
+       -> "scanning", not "accepted" or "pending". scan_draft's
+       process_draft can take several seconds for a first-time scan;
+       without this, a draft mid-scan and a draft that's genuinely been
+       scanned clean look identical here (both zero detections, no
+       quarantine activity) — checking History during that window would
+       misreport a post as already resolved before anyone has actually
+       reviewed anything. Deliberately its own status rather than reusing
+       "pending" — see #3.
+    7. No flags at all -> "accepted" (nothing to resolve)."""
     held = next((q for q in quarantine_items if q["state"] == "held"), None)
     if held:
         return "quarantined", held
+
+    editing = next((q for q in quarantine_items if q["state"] == "edited"), None)
+    if editing and any(d.get("resolution") is None for d in detections):
+        return "quarantined", editing
 
     if any(d.get("resolution") is None for d in detections):
         return "pending", None
@@ -101,17 +128,23 @@ def _derive_status(detections, quarantine_items):
         return "rejected", None
     if any(q["state"] == "deleted" for q in quarantine_items):
         return "rejected", None
+    if not detections and scan_status == "running":
+        return "scanning", None
     return "accepted", None
 
 
 def _post_summary(draft, detections, quarantine_items):
-    status, held_item = _derive_status(detections, quarantine_items)
+    status, held_item = _derive_status(detections, quarantine_items, draft.get("scan_status"))
+    # "No sensitive content detected" would be misleading while "scanning" —
+    # that phrasing implies the scan concluded and found nothing, not that
+    # it hasn't run yet.
+    flag_summary = "Scan in progress…" if status == "scanning" else _summarize_flags(detections)
     summary = {
         "draft_id": draft["draft_id"],
         "captured_at": draft["captured_at"],
         "status": status,
         "caption": draft.get("text_content") or None,
-        "summary": _summarize_flags(detections),
+        "summary": flag_summary,
         "has_image": draft.get("content_type") == "image" and bool(draft.get("storage_path")),
     }
     if held_item:
@@ -153,7 +186,7 @@ def get_history():
       - in: query
         name: filter
         type: string
-        enum: [all, accepted, rejected, quarantined, pending]
+        enum: [all, accepted, rejected, quarantined, pending, scanning]
         required: false
         description: Restrict to posts with this derived status. Defaults to "all".
     responses:
@@ -171,7 +204,7 @@ def get_history():
                 format: date-time
               status:
                 type: string
-                enum: [accepted, rejected, quarantined, pending]
+                enum: [accepted, rejected, quarantined, pending, scanning]
               caption:
                 type: string
                 description: The draft's text_content, if any.
