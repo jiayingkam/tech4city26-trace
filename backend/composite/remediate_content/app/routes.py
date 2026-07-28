@@ -106,17 +106,20 @@ def _get_original_path(draft_id):
 
 
 def _generate_emoji(size):
-    """Draws a simple smiley at the given (w, h) pixel size.
+    """Draws a simple smiley sized to fit inside the given (w, h) box.
 
     Pillow can't reliably render a real color-emoji glyph from text (no
     COLR/CBDT font support), and bundling a downloaded image asset adds an
     external dependency for one small icon — drawing it with basic shapes
-    sidesteps both. Returns an RGBA image; the transparent area outside the
-    circle is what lets paste() below only affect the round face, not its
-    bounding box's corners.
+    sidesteps both. Returns a square RGBA image (the transparent area outside
+    the circle is what lets paste() below only affect the round face, not a
+    bounding box's corners) — deliberately NOT stretched to (w, h): a face
+    box a user drags into a non-square rectangle would otherwise squash the
+    circle into an oval. The caller centers this square within the box
+    instead, so resizing changes the padding around the face, never its shape.
     """
     w, h = max(1, size[0]), max(1, size[1])
-    dim = max(w, h)
+    dim = max(1, min(w, h))
     face = Image.new("RGBA", (dim, dim), (0, 0, 0, 0))
     draw = ImageDraw.Draw(face)
     draw.ellipse((0, 0, dim - 1, dim - 1), fill=(255, 205, 40, 255))
@@ -131,7 +134,7 @@ def _generate_emoji(size):
         (dim * 0.22, dim * 0.40, dim * 0.78, dim * 0.82),
         start=15, end=165, fill=(70, 45, 10, 255), width=max(2, dim // 18),
     )
-    return face.resize((w, h), Image.LANCZOS)
+    return face
 
 
 def apply_remediation(original_path, edits):
@@ -159,7 +162,10 @@ def apply_remediation(original_path, edits):
                region["x"] + region["w"], region["y"] + region["h"])
         if e.get("edit_type") == "emoji":
             emoji = _generate_emoji((region["w"], region["h"]))
-            img.paste(emoji, (region["x"], region["y"]), emoji)
+            # Centered, not stretched to fill the box — see _generate_emoji.
+            paste_x = region["x"] + (region["w"] - emoji.width) // 2
+            paste_y = region["y"] + (region["h"] - emoji.height) // 2
+            img.paste(emoji, (paste_x, paste_y), emoji)
         else:
             blurred = img.crop(box).filter(ImageFilter.GaussianBlur(radius=15))
             img.paste(blurred, box)
