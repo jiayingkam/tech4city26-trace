@@ -356,6 +356,13 @@ function coverAllFaces() {
   return Promise.all(faceEdits.value.filter((e) => e.status === 'reverted').map(toggleEdit))
 }
 
+// Inverse of coverAllFaces — turns off every currently-covered face, so
+// covering a whole group and then changing your mind doesn't mean
+// unchecking each one individually.
+function uncoverAllFaces() {
+  return Promise.all(faceEdits.value.filter((e) => e.status !== 'reverted').map(toggleEdit))
+}
+
 async function toggleEdit(edit) {
   error.value = ''
   const restoring = edit.status === 'reverted'
@@ -536,7 +543,7 @@ async function sendChat(text) {
         </div>
         <p v-if="addMode" class="soft-note text-center mb-3">Drag on the photo to draw a box around it.</p>
         <p v-else-if="editableBoxes.length" class="soft-note text-center mb-3">
-          Drag a box to move it, or the corner handle to resize it.
+          Drag a box to move it, or its corner to resize.
         </p>
       </template>
       <div v-else class="mb-3"></div>
@@ -601,15 +608,26 @@ async function sendChat(text) {
       <div v-if="faceEdits.length" class="fix-panel fix-panel--faces mb-3">
         <div class="d-flex align-items-center justify-content-between mb-1">
           <p class="fw-bold small mb-0">Cover faces <span class="optional-tag">optional</span></p>
-          <button
-            v-if="faceEdits.length > 1 && faceEdits.some((e) => e.status === 'reverted')"
-            type="button"
-            class="cover-all-btn"
-            :disabled="confirmed"
-            @click="coverAllFaces"
-          >
-            Cover all
-          </button>
+          <div class="d-flex gap-2">
+            <button
+              v-if="faceEdits.length > 1 && faceEdits.some((e) => e.status === 'reverted')"
+              type="button"
+              class="cover-all-btn"
+              :disabled="confirmed"
+              @click="coverAllFaces"
+            >
+              Cover all
+            </button>
+            <button
+              v-if="faceEdits.length > 1 && faceEdits.some((e) => e.status !== 'reverted')"
+              type="button"
+              class="cover-all-btn"
+              :disabled="confirmed"
+              @click="uncoverAllFaces"
+            >
+              Uncover all
+            </button>
+          </div>
         </div>
         <p class="x-small text-secondary mb-2">
           Covering faces boosts your privacy score and gives you some peace of mind.
