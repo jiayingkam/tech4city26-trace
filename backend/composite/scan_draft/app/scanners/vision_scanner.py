@@ -287,12 +287,19 @@ def scan_image(image_path):
     if not faces:
         return _scan_whole_image_fallback(image_path, width, height)
 
-    # A face on its own isn't treated as a privacy risk in this app (that's
-    # what the uniform-crest search below is actually for) — this is an
-    # opt-in convenience finding so the review screen can offer "cover this
-    # face with an emoji" for anyone who wants it, not a warning. Kept at the
-    # lowest exposure_score so it stays negligible if it ever reaches mosaic
-    # scoring. Uses the original (non-downscaled) face coords directly, same
+    # A face is a real identifying signal (detect_mosaic_risk scores it as
+    # such), but the Results/Clean-up screens deliberately don't treat it as
+    # an automatic warning — that's a UI choice about not being alarmist, so
+    # this is offered as an opt-in "cover with an emoji" convenience rather
+    # than an auto-proposed fix. exposure_score is kept at the scale's
+    # minimum deliberately: unlike every other category (judged 1-5 by the
+    # LLM per instance), a face's score here is a flat constant regardless of
+    # context, and detect_mosaic_risk's per-photo face-bits cap already
+    # bounds a crowd photo's total drag — so this only needs to be a mild,
+    # not a severe, per-face signal. Also well below the quarantine
+    # threshold (4): an uncovered face should never by itself hold a post
+    # for review, only genuinely count against the privacy score.
+    # Uses the original (non-downscaled) face coords directly, same
     # coordinate space every other finding's bounding_region is reported in.
     face_findings = [
         {

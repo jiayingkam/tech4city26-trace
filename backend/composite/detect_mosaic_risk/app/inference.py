@@ -5,8 +5,12 @@ K_BASELINE = 6_000_000
 
 
 def _bits_to_k(bits: float) -> int:
-    """Arithmetic: how many people in Singapore remain after `bits` of narrowing."""
-    return max(1, int(K_BASELINE / (2 ** bits)))
+    """Arithmetic: how many people in Singapore remain after `bits` of narrowing.
+
+    Clamped at K_BASELINE — a reward (e.g. covering a detected face) can push
+    bits negative, which would otherwise let k exceed the population itself.
+    """
+    return min(K_BASELINE, max(1, int(K_BASELINE / (2 ** bits))))
 
 
 def compute_delta(
