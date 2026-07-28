@@ -107,7 +107,13 @@ async function handleShare(payload) {
     if (scanOutcome.value.outcome === 'remediated') {
       activeRemediation.value = scanOutcome.value.remediation
     }
-    step.value = 3
+    // Quarantined content skips the findings list entirely and goes
+    // straight to "Pause and review" (step 4) — that screen IS the
+    // response to a serious finding; showing the full results list first
+    // (previously reachable only via its own "Continue" button, the same
+    // path a normal remediated post takes) undercut the whole point of
+    // interrupting the post with a deliberate pause.
+    step.value = scanOutcome.value.outcome === 'quarantined' ? 4 : 3
   } catch (err) {
     // Network-level failures (fetch throwing, or our own abort-timeout) surface
     // raw browser wording like "Load failed" — not something to show as-is.
