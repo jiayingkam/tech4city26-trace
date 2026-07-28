@@ -146,6 +146,18 @@ function restart() {
   // Invalidate the privacy score cache so the next visit reflects this post.
   window.__mosaicCache = null
 }
+
+// Leaving History/Settings/Mosaic back to the main app previously only
+// flipped `screen` back to 'app', leaving `step` exactly where an earlier,
+// unrelated scan had left it (e.g. still 3, ResultsView) — so returning
+// from a completely separate History interaction (like deleting a
+// quarantined post) would land back on stale, leftover scan results for
+// whatever post was last open before the user navigated away. Resetting
+// through restart() here guarantees a fresh compose screen instead.
+function leaveToApp() {
+  screen.value = 'app'
+  restart()
+}
 let quickTeachTimer = null
 let remainingQuickTeachTips = []
 let previousQuickTeachTip = null
@@ -205,7 +217,7 @@ onUnmounted(stopQuickTeach)
       <!-- Hamburger menu: History / Settings -->
       <HistoryView
         v-if="screen === 'history'"
-        @back="screen = 'app'"
+        @back="leaveToApp"
         @history="screen = 'history'"
         @settings="openSettings"
         @mosaic="screen = 'mosaic'"
@@ -215,7 +227,7 @@ onUnmounted(stopQuickTeach)
         v-else-if="screen === 'settings' && settingsUser"
         :user="settingsUser"
         @updated="settingsUser = $event"
-        @back="screen = 'app'"
+        @back="leaveToApp"
         @history="screen = 'history'"
         @settings="openSettings"
         @mosaic="screen = 'mosaic'"
@@ -223,7 +235,7 @@ onUnmounted(stopQuickTeach)
       />
       <MosaicView
         v-else-if="screen === 'mosaic'"
-        @back="screen = 'app'"
+        @back="leaveToApp"
         @history="screen = 'history'"
         @settings="openSettings"
         @mosaic="screen = 'mosaic'"
