@@ -124,7 +124,12 @@ def _derive_status(detections, quarantine_items, scan_status=None):
 
     if any(d.get("resolution") is None for d in detections):
         return "pending", None
-    if any(d.get("resolution") == "rejected" for d in detections):
+    # Faces never decide a post's outcome. Covering one is a manual, cosmetic
+    # choice on the Clean-up screen, so a user placing a cover and then
+    # removing it again shouldn't brand an otherwise fully cleaned post as
+    # "Rejected" — which is what happened while the mosaic trajectory, keying
+    # off any_accepted, still counted the same post as published.
+    if any(d.get("resolution") == "rejected" and d.get("category") != "face" for d in detections):
         return "rejected", None
     if any(q["state"] == "deleted" for q in quarantine_items):
         return "rejected", None

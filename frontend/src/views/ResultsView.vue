@@ -49,12 +49,10 @@ function regionsOverlap(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
 }
 
-// Faces are an opt-in convenience (see RemediationView's "Cover faces"
-// section), not a risk — excluded here so this screen never treats them as
-// a finding. Otherwise several overlapping faces in a group photo get
-// grouped by imageFindingGroups below into one giant merged box (that
-// grouping is meant for a handful of genuinely-overlapping risk findings,
-// like several details on the same passport, not a crowd of faces).
+// The scanner no longer emits face findings at all, but a face detection can
+// still exist from a user placing a cover by hand on the Clean-up screen —
+// filtered out here so a self-marked cover never reads back as something the
+// scan flagged.
 const imageFindings = computed(() =>
   props.detections
     .filter((d) => d.source_type === 'image' && d.bounding_region && d.category !== 'face')
@@ -147,11 +145,11 @@ async function loadGroupExplanations() {
 onMounted(loadGroupExplanations)
 const metadataFindings = computed(() => props.detections.filter((d) => d.category === 'metadata'))
 const textFindings = computed(() => props.detections.filter((d) => d.source_type === 'text'))
-// Real risk only — a photo with nothing but faces still reads as "looks
-// clear" here, same reasoning as imageFindings above.
+// Real risk only — a photo whose only detection is a hand-placed face cover
+// still reads as "looks clear" here, same reasoning as imageFindings above.
 const hasFindings = computed(() => props.detections.some((d) => d.category !== 'face'))
-// Faces still need a way to reach the opt-in "Cover faces" panel on the next
-// screen even when there's no real risk to fix — see the continue button.
+// Keeps the route back to the Clean-up screen open when the only thing on a
+// post is a cover the user placed themselves — see the continue button.
 const hasFaceFindings = computed(() => props.detections.some((d) => d.category === 'face'))
 
 const isVideo = computed(() => props.contentType === 'video')

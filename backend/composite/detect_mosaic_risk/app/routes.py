@@ -121,32 +121,15 @@ def _is_vague(det: dict) -> bool:
 def _detection_bits(det: dict) -> float:
     """0 for vague findings; otherwise exposure_score * 0.5, capped at 5.
 
-    A face is always 0 here, covered or not — merely having a face in a
-    photo carries no penalty (see face-cover-privacy-score-followup). Faces
-    only ever affect the score through the separate cover BONUS in
-    _detection_to_observation.
+    A face is always 0 here, covered or not. Faces are never a risk finding
+    in this app's model and covering one is a manual, cosmetic choice on the
+    Clean-up screen — it does not move the score in either direction.
     """
     if det.get("category") == "face":
         return 0.0
     if _is_vague(det):
         return 0.0
     return min(det.get("exposure_score", 1) * 0.5, 5.0)
-
-
-def _is_rewardable_face_cover(det: dict) -> bool:
-    """True only for a genuinely AI-detected face that the user covered.
-
-    Deliberately excludes model_version == 'manual' (addManualFaceEdit's
-    self-marked covers): the reward is for resolving a real identifying
-    signal the scanner actually found, not for placing an emoji anywhere in
-    the photo. Without this check a user could add a meaningless emoji to
-    farm score improvements without covering anything real.
-    """
-    return (
-        det.get("category") == "face"
-        and det.get("resolution") == "accepted"
-        and det.get("model_version") != "manual"
-    )
 
 
 def _word_jaccard(a: str, b: str) -> float:
@@ -156,44 +139,13 @@ def _word_jaccard(a: str, b: str) -> float:
     return len(wa & wb) / len(wa | wb)
 
 
-# Total bonus bits a single photo's covered faces can earn, regardless of how
-# many are covered — worth ~10 points at typical baselines (verified against
-# the real scoring pipeline). Without this, covering many faces in one photo
-# would inflate the score without bound.
-_FACE_BONUS_BITS_CAP = 2.25
-
-# Bonus per genuinely-detected, covered face — ~2 points at typical baselines.
-_FACE_COVER_BONUS_BITS = 0.45
-
-
 def _dedup_observations(obs_list: list[Observation]) -> list[Observation]:
-    """Drop near-duplicate observations (Jaccard > 0.7 on constraint words).
-
-    Face observations are exempt from this dedup — each face is a genuinely
-    separate person, not a re-description of the same fact, even though
-    every face's constraint text is identically generic (see
-    _detection_to_observation / vision_scanner.py). Deduping them would
-    collapse a whole photo's faces down to just one, so covering only some of
-    several faces wouldn't be distinguishable from covering none. Instead,
-    their combined bonus is capped at _FACE_BONUS_BITS_CAP so covering many
-    faces in one photo still has a bounded, predictable reward.
-    """
-    faces = [o for o in obs_list if o.constraint.startswith("face:")]
-    others = [o for o in obs_list if not o.constraint.startswith("face:")]
-
+    """Drop near-duplicate observations (Jaccard > 0.7 on constraint words)."""
     kept: list[Observation] = []
-    for obs in others:
+    for obs in obs_list:
         if not any(_word_jaccard(obs.constraint, k.constraint) > 0.7 for k in kept):
             kept.append(obs)
-
-    # Face bits are always <= 0 (a bonus, never a penalty — see
-    # _detection_to_observation), so cap the total magnitude of that bonus.
-    total_bonus = -sum(o.contribution_bits or 0.0 for o in faces)
-    if total_bonus > _FACE_BONUS_BITS_CAP:
-        scale = _FACE_BONUS_BITS_CAP / total_bonus
-        faces = [o.model_copy(update={"contribution_bits": o.contribution_bits * scale}) for o in faces]
-
-    return kept + faces
+    return kept
 
 
 def _detection_to_observation(det: dict) -> Observation:
@@ -206,21 +158,12 @@ def _detection_to_observation(det: dict) -> Observation:
     Kind/target are derived from the detection category, not hardcoded to
     possession/identity.
 
-    Faces are a deliberate exception to the penalty/refund pattern every
-    other category follows: a bare face (covered or not) never costs
-    anything, but covering a genuinely-detected one earns a bonus (negative
-    bits — widens k rather than narrowing it). See _is_rewardable_face_cover.
+    Faces always land at 0 bits via _detection_bits, covered or not — they
+    neither cost nor earn anything.
     """
     category = det.get("category", "unknown")
     kind, target = _CATEGORY_KIND_TARGET.get(category, ("possession", "identity"))
     detail = det.get("detail") or category
-
-    if category == "face":
-        bits = -_FACE_COVER_BONUS_BITS if _is_rewardable_face_cover(det) else 0.0
-        return Observation(
-            kind=kind, target=target, surface=detail, entity=None,
-            constraint=f"{category}: {detail}", contribution_bits=bits,
-        )
 
     raw_bits = _detection_bits(det)
     if det.get("resolution") == "accepted":

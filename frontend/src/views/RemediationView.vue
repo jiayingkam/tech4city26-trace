@@ -68,9 +68,12 @@ const hasPendingImageEdits = computed(() => proposedEdits.value.some((e) => e.st
 
 const blurEdits = computed(() => proposedEdits.value.filter((e) => e.edit_type === 'blur'))
 const stripEdits = computed(() => proposedEdits.value.filter((e) => e.edit_type === 'metadata_strip'))
-// Face-cover suggestions are opt-in, not a risk warning — kept out of
-// "Suggested fixes" and shown in their own section instead (see faceEdits).
-const riskEdits = computed(() => proposedEdits.value.filter((e) => e.edit_type !== 'emoji'))
+// The scanner no longer proposes face covers at all, so every emoji edit is
+// one the user drew themselves via "Cover a face" — which means they belong
+// in the same list as any other self-marked area (and need its remove
+// button), rather than the separate opt-in panel they used to live in.
+const riskEdits = computed(() => proposedEdits.value)
+// Still needed to render emoji covers on the canvas and make them draggable.
 const faceEdits = computed(() => proposedEdits.value.filter((e) => e.edit_type === 'emoji'))
 
 function editLabel(edit) {
@@ -349,20 +352,6 @@ async function onDragEnd() {
   }
 }
 
-// Bulk version of toggleEdit for the "Cover all faces" button — turns on
-// every face that isn't already covered, one at a time, reusing the same
-// optimistic-update/rollback behaviour per edit.
-function coverAllFaces() {
-  return Promise.all(faceEdits.value.filter((e) => e.status === 'reverted').map(toggleEdit))
-}
-
-// Inverse of coverAllFaces — turns off every currently-covered face, so
-// covering a whole group and then changing your mind doesn't mean
-// unchecking each one individually.
-function uncoverAllFaces() {
-  return Promise.all(faceEdits.value.filter((e) => e.status !== 'reverted').map(toggleEdit))
-}
-
 async function toggleEdit(edit) {
   error.value = ''
   const restoring = edit.status === 'reverted'
@@ -605,56 +594,6 @@ async function sendChat(text) {
         </div>
       </div>
 
-      <div v-if="faceEdits.length" class="fix-panel fix-panel--faces mb-3">
-        <div class="d-flex align-items-center justify-content-between mb-1">
-          <p class="fw-bold small mb-0">Cover faces <span class="optional-tag">optional</span></p>
-          <div class="d-flex gap-2">
-            <button
-              v-if="faceEdits.length > 1 && faceEdits.some((e) => e.status === 'reverted')"
-              type="button"
-              class="cover-all-btn"
-              :disabled="confirmed"
-              @click="coverAllFaces"
-            >
-              Cover all
-            </button>
-            <button
-              v-if="faceEdits.length > 1 && faceEdits.some((e) => e.status !== 'reverted')"
-              type="button"
-              class="cover-all-btn"
-              :disabled="confirmed"
-              @click="uncoverAllFaces"
-            >
-              Uncover all
-            </button>
-          </div>
-        </div>
-        <p class="x-small text-secondary mb-2">
-          Covering faces boosts your privacy score and gives you some peace of mind.
-        </p>
-        <div v-for="edit in faceEdits" :key="edit.edit_id" class="form-check form-switch fix-row">
-          <input
-            :id="edit.edit_id"
-            class="form-check-input"
-            type="checkbox"
-            :checked="edit.status !== 'reverted'"
-            :disabled="confirmed"
-            @change="toggleEdit(edit)"
-          />
-          <label class="form-check-label small fw-semibold" :for="edit.edit_id">
-            {{ editLabel(edit) }}
-            <button
-              v-if="isManualEdit(edit) && !confirmed"
-              type="button"
-              class="remove-btn"
-              aria-label="Remove this area"
-              @click.stop.prevent="removeManualEdit(edit)"
-            >
-              ×
-            </button>
-          </label>
-        </div>
-      </div>
 
       <div v-if="redaction" class="fix-panel mb-3">
         <p class="fw-bold small mb-1">Caption</p>
@@ -786,36 +725,6 @@ async function sendChat(text) {
   border: 1px solid var(--trace-line);
   border-radius: 14px;
   background: #fff;
-}
-/* Deliberately calmer than .fix-panel's risk-finding look — this section is
-   an opt-in choice, not a warning, so it shouldn't visually read as one. */
-.fix-panel--faces {
-  background: #f7f8fb;
-}
-.cover-all-btn {
-  border: none;
-  background: none;
-  color: var(--trace-primary, #2f6fed);
-  font-size: 0.76rem;
-  font-weight: 700;
-  padding: 2px 4px;
-  cursor: pointer;
-}
-.cover-all-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.optional-tag {
-  font-size: 0.62rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: #6b7280;
-  background: #eef0f3;
-  padding: 1px 7px;
-  border-radius: 999px;
-  margin-left: 4px;
-  vertical-align: middle;
 }
 .x-small {
   font-size: 0.72rem;

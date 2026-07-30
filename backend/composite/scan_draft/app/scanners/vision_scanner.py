@@ -287,35 +287,11 @@ def scan_image(image_path):
     if not faces:
         return _scan_whole_image_fallback(image_path, width, height)
 
-    # A face is a real identifying signal (detect_mosaic_risk scores it as
-    # such), but the Results/Clean-up screens deliberately don't treat it as
-    # an automatic warning — that's a UI choice about not being alarmist, so
-    # this is offered as an opt-in "cover with an emoji" convenience rather
-    # than an auto-proposed fix. exposure_score is kept at the scale's
-    # minimum deliberately: unlike every other category (judged 1-5 by the
-    # LLM per instance), a face's score here is a flat constant regardless of
-    # context, and detect_mosaic_risk's per-photo face-bits cap already
-    # bounds a crowd photo's total drag — so this only needs to be a mild,
-    # not a severe, per-face signal. Also well below the quarantine
-    # threshold (4): an uncovered face should never by itself hold a post
-    # for review, only genuinely count against the privacy score.
-    # Uses the original (non-downscaled) face coords directly, same
-    # coordinate space every other finding's bounding_region is reported in.
-    face_findings = [
-        {
-            "category": "face",
-            "source_type": "image",
-            "exposure_score": 1,
-            "confidence": 1.0,
-            "model_version": "cloud-vision-face-detection",
-            "detail": "A face is visible in this photo.",
-            "bounding_region": {
-                "x": round(f["x"]), "y": round(f["y"]),
-                "w": round(f["w"]), "h": round(f["h"]),
-            },
-        }
-        for f in faces
-    ]
+    # Detected faces are used purely as an internal anchor for the uniform-crest
+    # search below — they are deliberately NOT emitted as findings of their own.
+    # A bare face isn't treated as a risk in this app's model, and covering one
+    # is offered as a manual convenience on the Clean-up screen ("Cover a face")
+    # rather than something the scanner proposes or scores.
 
     # Everything past this point works in the (possibly) downscaled image's
     # coordinate space; scale is folded back out of the final bounding_region
@@ -326,7 +302,7 @@ def scan_image(image_path):
         for f in faces
     ]
 
-    findings = list(face_findings)
+    findings = []
     with Image.open(image_path) as img:
         if scale < 1.0:
             img = img.resize((round(width * scale), round(height * scale)), Image.LANCZOS)
