@@ -116,6 +116,23 @@ function formatCitations(list) {
   return [...new Set(list || [])].map((c) => `“${c}”`).join(', ')
 }
 
+// The backend's raw high/medium/low describes how SURE Trace is that an
+// inference is correct (a named entity or two agreeing posts = high; one
+// clear constraint = medium; a single weak signal = low). Shown verbatim,
+// those words collide with how the rest of the app uses them — exposure
+// scores and the score gauge both say "low/medium/high risk" — so a badge
+// reading MEDIUM gets read as "medium risk" rather than "medium certainty".
+// A certainty ladder has no severity reading available.
+const CONFIDENCE_LABELS = {
+  high: 'Almost certain',
+  medium: 'Likely',
+  low: 'Possible',
+}
+
+function confidenceLabel(confidence) {
+  return CONFIDENCE_LABELS[confidence] || confidence
+}
+
 function applyCache(data) {
   trajectory.value = data.trajectory || []
   finalK.value = data.final_k
@@ -230,7 +247,7 @@ onMounted(load)
               <p class="mb-0 small stranger-statement">{{ inf.statement }}</p>
               <p class="mb-0 stranger-cite">based on {{ formatCitations(inf.based_on) }}</p>
             </div>
-            <span class="stranger-conf-tag" :class="`conf--${inf.confidence}`">{{ inf.confidence }}</span>
+            <span class="stranger-conf-tag" :class="`conf--${inf.confidence}`">{{ confidenceLabel(inf.confidence) }}</span>
           </div>
         </div>
 
@@ -555,11 +572,12 @@ onMounted(load)
   color: #8b91a6;
   margin-top: 1px;
 }
+/* Sentence case, not uppercase — these labels are now multi-word phrases
+   ("Almost certain"), and uppercase micro-text gets hard to read at speed. */
 .stranger-conf-tag {
-  font-size: 0.6rem;
+  font-size: 0.62rem;
   font-weight: 700;
-  text-transform: uppercase;
-  padding: 1px 6px;
+  padding: 1px 7px;
   border-radius: 999px;
   white-space: nowrap;
   align-self: flex-start;
