@@ -538,7 +538,7 @@ async function sendChat(text) {
             :class="addMode === 'face' ? 'btn-secondary' : 'btn-outline-primary'"
             @click="toggleAddMode('face')"
           >
-            {{ addMode === 'face' ? 'Cancel marking' : 'Mark a missed face' }}
+            {{ addMode === 'face' ? 'Cancel marking' : 'Cover a face' }}
           </button>
         </div>
         <p v-if="addMode" class="soft-note text-center mb-3">Drag on the photo to draw a box around it.</p>
