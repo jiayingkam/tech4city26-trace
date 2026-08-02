@@ -130,6 +130,38 @@ def test_get_history_derives_rejected_status(client, auth_headers, mock_requests
     assert response.json[0]["status"] == "rejected"
 
 
+def test_get_history_derives_accepted_status_above_threshold(client, auth_headers, mock_requests):
+    drafts = [_draft("d1", "2026-01-01T00:00:00+00:00")]
+    # 3 of 4 non-face flags accepted (75% >= 70%) -> still "accepted" overall.
+    detections = [
+        {"category": "document", "resolution": "accepted"},
+        {"category": "document", "resolution": "accepted"},
+        {"category": "text", "resolution": "accepted"},
+        {"category": "text", "resolution": "rejected"},
+    ]
+    mock_requests.get.side_effect = _history_fake_get(drafts, {"d1": detections})
+
+    response = client.get("/history", headers=auth_headers)
+
+    assert response.json[0]["status"] == "accepted"
+
+
+def test_get_history_derives_rejected_status_below_threshold(client, auth_headers, mock_requests):
+    drafts = [_draft("d1", "2026-01-01T00:00:00+00:00")]
+    # Only 1 of 4 non-face flags accepted (25% < 70%) -> "rejected" overall.
+    detections = [
+        {"category": "document", "resolution": "accepted"},
+        {"category": "document", "resolution": "rejected"},
+        {"category": "text", "resolution": "rejected"},
+        {"category": "text", "resolution": "rejected"},
+    ]
+    mock_requests.get.side_effect = _history_fake_get(drafts, {"d1": detections})
+
+    response = client.get("/history", headers=auth_headers)
+
+    assert response.json[0]["status"] == "rejected"
+
+
 def test_get_history_derives_pending_status(client, auth_headers, mock_requests):
     drafts = [_draft("d1", "2026-01-01T00:00:00+00:00")]
     detections = [{"category": "face", "resolution": None}]

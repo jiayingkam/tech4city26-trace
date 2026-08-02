@@ -99,12 +99,11 @@ def _derive_status(detections, quarantine_items, scan_status=None):
        proposal, so a genuinely different situation (see #6) must NOT also
        report "pending", or that call fails with "nothing to remediate"
        against a draft that has no findings to resume yet.
-    4. Anything rejected (fixed/withheld) takes priority over accepted, since
-       catching and correcting an exposure is the more important signal to
-       surface than the things left as-is alongside it.
-    5. Otherwise, if it was released from quarantine or every flag was
-       accepted as-is -> "accepted".
-    6. Zero detections AND a synchronous (image/text) scan is still running
+    4. Otherwise, "accepted" as long as at least 70% of the non-face flags
+       were accepted — a handful of declined fixes alongside a mostly-cleaned
+       post shouldn't read the same as a post nobody addressed. Below that
+       threshold -> "rejected".
+    5. Zero detections AND a synchronous (image/text) scan is still running
        -> "scanning", not "accepted" or "pending". scan_draft's
        process_draft can take several seconds for a first-time scan;
        without this, a draft mid-scan and a draft that's genuinely been
@@ -113,7 +112,7 @@ def _derive_status(detections, quarantine_items, scan_status=None):
        misreport a post as already resolved before anyone has actually
        reviewed anything. Deliberately its own status rather than reusing
        "pending" — see #3.
-    7. No flags at all -> "accepted" (nothing to resolve)."""
+    6. No flags at all -> "accepted" (nothing to resolve)."""
     held = next((q for q in quarantine_items if q["state"] == "held"), None)
     if held:
         return "quarantined", held
@@ -129,8 +128,11 @@ def _derive_status(detections, quarantine_items, scan_status=None):
     # removing it again shouldn't brand an otherwise fully cleaned post as
     # "Rejected" — which is what happened while the mosaic trajectory, keying
     # off any_accepted, still counted the same post as published.
-    if any(d.get("resolution") == "rejected" and d.get("category") != "face" for d in detections):
-        return "rejected", None
+    decisive = [d for d in detections if d.get("category") != "face"]
+    if decisive:
+        accepted_share = sum(1 for d in decisive if d.get("resolution") == "accepted") / len(decisive)
+        if accepted_share < 0.7:
+            return "rejected", None
     if any(q["state"] == "deleted" for q in quarantine_items):
         return "rejected", None
     if not detections and scan_status == "running":

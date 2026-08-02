@@ -3,3 +3,5 @@ node_modules/
 __pycache__/
 *.py[cod]
 secret/
+*.mov
+*.mp4
