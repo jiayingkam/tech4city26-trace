@@ -96,3 +96,4 @@ def health():
         description: The service process is alive.
     """
     return jsonify({"status": "ok"}), 200
+
