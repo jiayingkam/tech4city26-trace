@@ -17,4 +17,3 @@ COPY shared/trace_storage trace_storage/
 COPY composite/scan_video/app/ app/
 
 CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5016} --workers 1 --threads 8 --timeout 0 app.app:'create_app()'"]
-
