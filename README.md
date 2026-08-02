@@ -2,6 +2,10 @@
 
 A microservices backend built with Flask, organised into **atomic** (CRUD) and **composite** (orchestration) services.
 
+**Introduction Video:**
+
+[youtu.be/1gd-T9Ew_XI?si=yYajSDrcUiiEqpU9](https://youtu.be/1gd-T9Ew_XI?si=yYajSDrcUiiEqpU9)
+
 ---
 
 ## 1. Service Port Mappings
