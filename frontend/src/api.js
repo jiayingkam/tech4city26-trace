@@ -428,11 +428,21 @@ export async function getExposureProfile(ownerId, onRetry) {
 
 // Forces a full server-side recompute (not just a re-read of the stored copy),
 // so "Refresh" reflects new posts/prompt changes. Returns the fresh profile.
+//
+// Deliberately NOT using fetchWithRetry's default retry behaviour: a cold
+// rebuild (one LLM call per uncached caption) routinely exceeds the default
+// 12s attempt timeout, and the server keeps computing after the client aborts
+// (detect_mosaic_risk runs with --timeout 0). A retry doesn't cancel that
+// in-flight computation — it starts a SECOND one alongside it, non-idempotent
+// POST racing non-idempotent POST, each writing its own profile. The score
+// the user saw was whichever response happened to return; the score actually
+// stored was whichever write landed last. No retries + a long single timeout
+// means at most one rebuild is ever in flight per press.
 export async function rebuildExposureProfile(ownerId, onRetry) {
   const res = await fetchWithRetry(
     `${UPDATE_EXPOSURE_PROFILE_URL}/users/${ownerId}/rebuild`,
     { method: 'POST' },
-    { onRetry },
+    { onRetry, retries: 0, attemptTimeoutMs: 120000 },
   )
   const data = await parseOrThrow(res)
   return data.profile || null

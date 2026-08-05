@@ -1,5 +1,8 @@
+import hashlib
+import json
 import os
 import re
+import threading
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -23,6 +26,21 @@ DETECTIONS_SERVICE_URL = os.environ.get(
 )
 CATEGORIES = ("face", "location", "document", "metadata", "contact", "financial")
 MAX_WEEKLY_FINDINGS = 5
+
+# Serializes "recompute + store" per user_id — this service runs a single
+# gunicorn worker (threads only), so an in-process lock is sufficient. Without
+# it, a double-tapped Refresh or two open tabs can run two rebuilds
+# concurrently: both compute independently (each paying for a fresh caption
+# LLM call on a cold cache) and both PUT their own profile, so the score the
+# user sees is whichever response returned first while the one actually
+# stored is whichever write landed last — the two can disagree.
+_rebuild_locks = {}
+_rebuild_locks_guard = threading.Lock()
+
+
+def _user_rebuild_lock(user_id):
+    with _rebuild_locks_guard:
+        return _rebuild_locks.setdefault(user_id, threading.Lock())
 
 
 def _iso(dt):
@@ -163,24 +181,56 @@ def _store_merged_profile(user_id, profile, headers):
     )
 
 
+def _stranger_basis_fingerprint(profile):
+    """Hashes everything the stranger narrative is derived from (the trajectory,
+    excluding any previously-attached stranger block itself). Identical trajectory
+    data always yields the same fingerprint, regardless of key order."""
+    basis = {k: v for k, v in profile.items() if k not in ("stranger", "stranger_fingerprint")}
+    encoded = json.dumps(basis, sort_keys=True, default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:32]
+
+
 def _compute_profile(user_id, headers):
     """Compute the full mosaic footprint live via detect_mosaic_risk, merging the
     trajectory and the stranger-profile into one blob. Returns None if the core
-    trajectory call fails; a missing stranger-profile degrades to an empty one."""
+    trajectory call fails; a missing stranger-profile degrades to an empty one.
+
+    The stranger narrative (synthesise_stranger_view) is an LLM call with no
+    caching of its own, so calling it unconditionally on every rebuild made the
+    inference wording and confidence tags reroll on every Refresh even when
+    nothing about the user's posts had changed. Reused here from the previously
+    stored profile whenever the trajectory it's derived from is unchanged —
+    identified by a fingerprint over everything BUT the stranger block itself,
+    so this can't accidentally compare a stranger block against its own hash.
+    """
     traj = requests.get(
         f"{DETECT_MOSAIC_RISK_URL}/users/{user_id}/mosaic-trajectory", headers=headers
     )
     if traj.status_code != 200:
         return None
     profile = traj.json()
+    fingerprint = _stranger_basis_fingerprint(profile)
 
-    stranger = requests.get(
-        f"{DETECT_MOSAIC_RISK_URL}/users/{user_id}/stranger-profile", headers=headers
-    )
-    profile["stranger"] = (
-        stranger.json() if stranger.status_code == 200
-        else {"inferences": [], "overall_confidence": 0}
-    )
+    # Best-effort: any failure reading the previous profile just falls through
+    # to regenerating the narrative, same degrade-open behaviour as the caption
+    # observation cache in detect_mosaic_risk.
+    try:
+        previous = _read_stored_profile(user_id, headers)
+    except requests.RequestException:
+        previous = None
+
+    if previous and previous.get("stranger_fingerprint") == fingerprint and "stranger" in previous:
+        profile["stranger"] = previous["stranger"]
+    else:
+        stranger = requests.get(
+            f"{DETECT_MOSAIC_RISK_URL}/users/{user_id}/stranger-profile", headers=headers
+        )
+        profile["stranger"] = (
+            stranger.json() if stranger.status_code == 200
+            else {"inferences": [], "overall_confidence": 0}
+        )
+
+    profile["stranger_fingerprint"] = fingerprint
     return profile
 
 
@@ -193,14 +243,23 @@ def _store_profile(user_id, profile, headers):
 
 
 def _rebuild_and_store(user_id, headers):
-    """Compute + persist. Returns (response_json, status_code)."""
-    profile = _compute_profile(user_id, headers)
-    if profile is None:
-        return {"error": "failed to compute profile"}, 502
-    store = _store_profile(user_id, profile, headers)
-    if store.status_code != 200:
-        return {"error": "failed to store profile"}, 502
-    return store.json(), 200
+    """Compute + persist, serialized per user_id (see _user_rebuild_lock).
+    Returns (response_json, status_code).
+
+    A second caller that queues up behind the lock isn't wasted work: by the
+    time it acquires the lock, the first caller has already stored a fresh
+    profile, so _compute_profile's fingerprint check (see above) finds a
+    match and reuses the stranger block it just wrote instead of re-calling
+    the LLM.
+    """
+    with _user_rebuild_lock(user_id):
+        profile = _compute_profile(user_id, headers)
+        if profile is None:
+            return {"error": "failed to compute profile"}, 502
+        store = _store_profile(user_id, profile, headers)
+        if store.status_code != 200:
+            return {"error": "failed to store profile"}, 502
+        return store.json(), 200
 
 
 @bp.post("/exposure-profiles/update")

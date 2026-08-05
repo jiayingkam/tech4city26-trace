@@ -323,7 +323,9 @@ onMounted(load)
     </div>
 
     <div class="app-action-bar">
-      <button class="btn btn-primary w-100" @click="refresh">Refresh</button>
+      <button class="btn btn-primary w-100" :disabled="loading" @click="refresh">
+        {{ loading ? 'Refreshing…' : 'Refresh' }}
+      </button>
       <button class="btn btn-outline-secondary w-100" @click="$emit('back')">Back</button>
     </div>
 

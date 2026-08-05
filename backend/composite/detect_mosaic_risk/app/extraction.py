@@ -93,7 +93,15 @@ If the text contains absolutely no information about the author's life, habits, 
 return an empty observations list."""
 
 
-def extract_observations(text: str) -> list[Observation]:
+def extract_observations(text: str) -> list[Observation] | None:
+    """Returns None on failure (rate limit, timeout, schema validation, etc.),
+    distinct from an empty list. The caller (_extract_observations_cached)
+    treats these very differently: an empty list is a genuine "nothing found"
+    result worth caching forever, while None means the call never actually
+    happened and must not be cached — caching a failure as "zero bits" would
+    permanently zero out that caption with no way to recover, since captions
+    are keyed by content hash and this text will never be re-extracted once a
+    successful result exists in the cache."""
     if not text or not text.strip():
         return []
 
@@ -109,4 +117,4 @@ def extract_observations(text: str) -> list[Observation]:
         result = chain.invoke({"text": text})
         return result.observations
     except Exception:
-        return []
+        return None

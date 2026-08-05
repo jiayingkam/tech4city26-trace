@@ -215,6 +215,12 @@ def _extract_observations_cached(text: str) -> list[Observation]:
         pass
 
     observations = extract_observations(text)
+    if observations is None:
+        # The LLM call itself failed — return an empty result for THIS
+        # request, but do not cache it. Caching would permanently record
+        # "zero bits" for this caption's fingerprint, indistinguishable from
+        # a real zero-observation result, with no way to retry later.
+        return []
 
     try:
         requests.put(
