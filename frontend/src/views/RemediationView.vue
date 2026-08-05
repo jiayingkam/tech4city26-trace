@@ -12,6 +12,7 @@ import {
   deleteEdit,
   renameDetection,
   sendTeachableMomentChat,
+  saveCleanedCaption,
 } from '../api'
 import TeachableChatPanel from '../components/TeachableChatPanel.vue'
 
@@ -452,10 +453,24 @@ async function cancel() {
   }
 }
 
+// Copying the caption and saving it are one action from the user's side —
+// "use this caption" — even though they're two calls: the clipboard write is
+// what actually lets them paste it into the real post, and the save is what
+// lets Trace score the version they took instead of the original forever.
+// The save is best-effort and never blocks or undoes the copy: if it fails,
+// the user still has the clean text on their clipboard, just with the
+// privacy-score credit not yet reflecting it.
 async function copySuggested() {
   await navigator.clipboard.writeText(redaction.suggested_caption)
   copied.value = true
   setTimeout(() => (copied.value = false), 1500)
+
+  try {
+    await saveCleanedCaption(props.draftId, redaction.suggested_caption)
+    window.__mosaicCache = null
+  } catch (err) {
+    error.value = err.message || 'Copied, but could not save the caption for scoring.'
+  }
 }
 
 const chatMessages = ref([])
@@ -600,7 +615,7 @@ async function sendChat(text) {
         <p class="text-muted small text-decoration-line-through mb-1">{{ redaction.original_caption }}</p>
         <p class="small mb-2 suggested-caption">{{ redaction.suggested_caption }}</p>
         <button class="btn btn-sm btn-outline-secondary" @click="copySuggested">
-          {{ copied ? 'Copied!' : 'Copy suggested caption' }}
+          {{ copied ? 'Copied!' : 'Use this caption' }}
         </button>
       </div>
 

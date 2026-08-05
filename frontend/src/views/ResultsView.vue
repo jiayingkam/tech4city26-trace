@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { sendTeachableMomentChat, explainFindingGroup } from '../api'
+import { sendTeachableMomentChat, explainFindingGroup, saveCleanedCaption } from '../api'
 import TeachableChatPanel from '../components/TeachableChatPanel.vue'
 
 const props = defineProps({
@@ -179,12 +179,26 @@ function seekTo(seconds) {
 
 const captionSuggestion = computed(() => props.remediation?.text_redaction || null)
 const copyState = ref('idle') // 'idle' | 'copied'
+const captionSaveError = ref('')
 
+// Copying and saving are one action from the user's side — "use this
+// caption" — even though they're two calls: the clipboard write is what
+// lets them paste it into the real post, the save is what lets Trace score
+// the version they actually took instead of the original forever. The save
+// is best-effort and never undoes the copy on failure.
 async function copySuggestedCaption() {
   if (!captionSuggestion.value) return
   await navigator.clipboard.writeText(captionSuggestion.value.suggested_caption)
   copyState.value = 'copied'
   setTimeout(() => { copyState.value = 'idle' }, 2000)
+
+  try {
+    await saveCleanedCaption(props.remediation.draft_id, captionSuggestion.value.suggested_caption)
+    window.__mosaicCache = null
+    captionSaveError.value = ''
+  } catch (err) {
+    captionSaveError.value = err.message || 'Copied, but could not save the caption for scoring.'
+  }
 }
 
 const chatMessages = ref([])
@@ -285,8 +299,9 @@ async function sendChat(text) {
           <p class="fw-bold small mb-2">Suggested caption</p>
           <p class="small mb-2">{{ captionSuggestion.suggested_caption || '(empty)' }}</p>
           <button type="button" class="btn btn-sm btn-outline-secondary" @click="copySuggestedCaption">
-            {{ copyState === 'copied' ? 'Copied!' : 'Copy suggested caption' }}
+            {{ copyState === 'copied' ? 'Copied!' : 'Use this caption' }}
           </button>
+          <p v-if="captionSaveError" class="text-danger small mt-2 mb-0">{{ captionSaveError }}</p>
         </div>
 
         <div v-if="teachableMoment" class="coach-card mt-3">

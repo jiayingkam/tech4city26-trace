@@ -168,7 +168,7 @@ def upload_draft():
 @bp.route("/drafts/<draft_id>/caption", methods=["PATCH"])
 def insert_caption(draft_id):
     """Set (or clear) a draft's caption.
-    An empty string is a valid caption — most posts have no caption at all, and the frontend may finish typing one after the photo has already started uploading/scanning.
+    An empty string is a valid caption — most posts have no caption at all, and the frontend may finish typing one after the photo has already started uploading/scanning. The FIRST call on a draft additionally preserves whatever text_content held before this write as original_text_content — mirrors remediation writing a cleaned photo to a new blob rather than overwriting the original. Later calls leave that preserved original alone, so cleaning a caption twice can't clobber the true original with an intermediate cleaned version.
     ---
     tags:
       - Upload Post
@@ -211,10 +211,23 @@ def insert_caption(draft_id):
     if not isinstance(text_content, str):
         return jsonify({"error": "text_content must be a string"}), 400
 
+    auth_headers = forwarded_auth_headers(request)
+    patch_payload = {"text_content": text_content}
+
+    # Preserve-once: only stamp original_text_content if this draft doesn't
+    # already have one. Best-effort — any failure reading the current draft
+    # just skips preservation for this call rather than blocking the save;
+    # the PATCH below still 404s on its own if the draft is genuinely gone.
+    get_resp = requests.get(f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}", headers=auth_headers)
+    if get_resp.status_code == 200:
+        current = get_resp.json()
+        if not current.get("original_text_content"):
+            patch_payload["original_text_content"] = current.get("text_content") or ""
+
     patch_resp = requests.patch(
         f"{CONTENT_DRAFTS_SERVICE_URL}/drafts/{draft_id}",
-        json={"text_content": text_content},
-        headers=forwarded_auth_headers(request),
+        json=patch_payload,
+        headers=auth_headers,
     )
     if patch_resp.status_code == 404:
         return jsonify({"error": "draft not found"}), 404

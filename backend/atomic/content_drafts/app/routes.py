@@ -172,7 +172,7 @@ def list_drafts_for_owner(owner_id):
 @bp.route("/drafts/<draft_id>", methods=["PATCH"])
 def update_draft(draft_id):
     """Update a draft's storage path, text content, and/or video scan progress.
-    Only storage_path, text_content, scan_status, and scan_operation are mutable — everything else about a draft is fixed at creation. scan_status/scan_operation are written by scan_video as it moves a video draft's async scan through running -> done/failed; other callers should treat them as read-only.
+    Only storage_path, text_content, original_text_content, scan_status, and scan_operation are mutable — everything else about a draft is fixed at creation. scan_status/scan_operation are written by scan_video as it moves a video draft's async scan through running -> done/failed; other callers should treat them as read-only. original_text_content is set by upload_post's caption endpoint the first time a caption is cleaned, preserving what the caption said before — this route itself applies whatever it's given with no preserve-once logic of its own.
     ---
     tags:
       - Content Drafts
@@ -195,6 +195,9 @@ def update_draft(draft_id):
               type: string
             text_content:
               type: string
+            original_text_content:
+              type: string
+              description: The caption's original text, preserved once when it's first cleaned.
             scan_status:
               type: string
               enum: [running, done, failed]
@@ -226,6 +229,8 @@ def update_draft(draft_id):
         draft.storage_path = data["storage_path"]
     if "text_content" in data:
         draft.text_content = data["text_content"]
+    if "original_text_content" in data:
+        draft.original_text_content = data["original_text_content"]
     if "scan_status" in data:
         scan_status = data["scan_status"]
         # null clears it back to not-yet-started, e.g. allowing a "failed" scan to be retried

@@ -120,6 +120,20 @@ export async function uploadPost({ contentType, sourceApp, caption, photoFile },
   return parseOrThrow(res)
 }
 
+// Saves the cleaned caption as the draft's real text_content — the caption
+// counterpart to downloading a cleaned photo. The backend preserves whatever
+// was there before as original_text_content, but only on the first call for
+// a given draft, so cleaning a caption twice can't overwrite the true
+// original with an intermediate version.
+export async function saveCleanedCaption(draftId, caption) {
+  const res = await fetchWithRetry(`${UPLOAD_POST_URL}/drafts/${draftId}/caption`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text_content: caption }),
+  })
+  return parseOrThrow(res)
+}
+
 export async function processDraft(draftId, onRetry) {
   const res = await fetchWithRetry(`${SCAN_DRAFT_URL}/drafts/${draftId}/process`, { method: 'POST' }, { onRetry })
   return parseOrThrow(res)
