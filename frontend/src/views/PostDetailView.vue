@@ -86,12 +86,24 @@ async function sendChat(text) {
     <div class="app-content">
       <img v-if="displayUrl" :src="displayUrl" class="w-100 rounded mb-2" alt="Your photo" />
       <p v-if="cleanedUrl" class="status-chip safe mx-auto mb-3">Cleaned version</p>
+      <a
+        v-if="cleanedUrl"
+        class="btn btn-sm btn-outline-secondary w-100 mb-3"
+        :href="cleanedUrl"
+        download="trace_clean_photo.jpg"
+      >
+        Download cleaned photo
+      </a>
 
       <p class="status-chip mb-3" :class="post.status === 'rejected' ? 'danger' : 'safe'">
         {{ STATUS_LABELS[post.status] || 'Pending' }}
       </p>
 
-      <p v-if="post.caption" class="small mb-3">{{ post.caption }}</p>
+      <template v-if="post.original_caption">
+        <p class="small text-muted text-decoration-line-through mb-1">{{ post.original_caption }}</p>
+        <p class="small mb-3">{{ post.caption || '(caption removed)' }}</p>
+      </template>
+      <p v-else-if="post.caption" class="small mb-3">{{ post.caption }}</p>
 
       <div v-if="detections.length" class="finding-panel mb-3">
         <p class="fw-bold small mb-2">What was found</p>

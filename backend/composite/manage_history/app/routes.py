@@ -151,6 +151,11 @@ def _post_summary(draft, detections, quarantine_items):
         "captured_at": draft["captured_at"],
         "status": status,
         "caption": draft.get("text_content") or None,
+        # Only set once a caption has actually been cleaned (see upload_post's
+        # insert_caption) — null for every post that predates that feature or
+        # never had its caption touched. Lets the frontend show a genuine
+        # before/after instead of just the current text.
+        "original_caption": draft.get("original_text_content") or None,
         "summary": flag_summary,
         "has_image": draft.get("content_type") == "image" and bool(draft.get("storage_path")),
     }
@@ -215,6 +220,9 @@ def get_history():
               caption:
                 type: string
                 description: The draft's text_content, if any.
+              original_caption:
+                type: string
+                description: The caption's text before it was cleaned, if it ever was. Absent otherwise.
               summary:
                 type: string
                 description: Plain-language list of what was flagged, or "No sensitive content detected."
