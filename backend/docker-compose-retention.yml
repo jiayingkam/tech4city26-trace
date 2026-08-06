@@ -34,6 +34,7 @@ services:
 
   # ── Atomic services ───────────────────────────────────────────────────────
   business_admins:
+    platform: linux/amd64  # Apple Silicon builds default to arm64 otherwise, which Cloud Run rejects
     build:
       context: .
       dockerfile: retention_guard/atomic/business_admins/Dockerfile
@@ -62,6 +63,7 @@ services:
       start_period: 15s
 
   data_sources:
+    platform: linux/amd64  # Apple Silicon builds default to arm64 otherwise, which Cloud Run rejects
     build:
       context: .
       dockerfile: retention_guard/atomic/data_sources/Dockerfile
@@ -87,6 +89,7 @@ services:
       start_period: 15s
 
   retention_policies:
+    platform: linux/amd64  # Apple Silicon builds default to arm64 otherwise, which Cloud Run rejects
     build:
       context: .
       dockerfile: retention_guard/atomic/retention_policies/Dockerfile
@@ -112,6 +115,7 @@ services:
       start_period: 15s
 
   audit_log:
+    platform: linux/amd64  # Apple Silicon builds default to arm64 otherwise, which Cloud Run rejects
     build:
       context: .
       dockerfile: retention_guard/atomic/audit_log/Dockerfile
@@ -138,6 +142,7 @@ services:
 
   # ── Composite service ────────────────────────────────────────────────────
   enforce_retention:
+    platform: linux/amd64  # Apple Silicon builds default to arm64 otherwise, which Cloud Run rejects
     build:
       context: .
       dockerfile: retention_guard/composite/enforce_retention/Dockerfile

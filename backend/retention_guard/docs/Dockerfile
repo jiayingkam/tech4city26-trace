@@ -7,8 +7,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py .
 
-ENV FLASK_APP=app:app
-ENV FLASK_RUN_HOST=0.0.0.0
-ENV FLASK_RUN_PORT=5100
-
-CMD ["flask", "run"]
+# gunicorn + a dynamic $PORT bind, matching every other retention_guard
+# service's Dockerfile — Cloud Run injects its own PORT (usually 8080) and
+# expects the container to listen there; the previous "flask run" +
+# hardcoded FLASK_RUN_PORT=5100 ignored that entirely and would have failed
+# to come up on Cloud Run.
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5100} --workers 1 --threads 8 --timeout 0 app:app"]
