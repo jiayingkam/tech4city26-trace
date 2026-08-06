@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Retention Guard Portal</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">Retention Guard <span class="tag">PDPA data retention</span></div>
+  <div id="whoami" class="whoami hidden">
+    <span id="whoamiText"></span>
+    <button id="logoutBtn" class="btn btn-ghost">Log out</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── Auth ─────────────────────────────────────────────────────────── -->
+  <section id="authSection" class="card auth-card">
+    <div class="tabs">
+      <button class="tab-btn active" data-authtab="login">Log in</button>
+      <button class="tab-btn" data-authtab="signup">Sign up</button>
+    </div>
+
+    <form id="loginForm" class="auth-form">
+      <label>Email <input type="email" name="email" required autocomplete="username"></label>
+      <label>Password <input type="password" name="password" required autocomplete="current-password"></label>
+      <button type="submit" class="btn btn-primary">Log in</button>
+      <p class="form-error" id="loginError"></p>
+    </form>
+
+    <form id="signupForm" class="auth-form hidden">
+      <label>Business name <input type="text" name="business_name" required></label>
+      <label>Email <input type="email" name="email" required autocomplete="username"></label>
+      <label>Password <input type="password" name="password" required autocomplete="new-password"></label>
+      <button type="submit" class="btn btn-primary">Create account</button>
+      <p class="form-error" id="signupError"></p>
+    </form>
+  </section>
+
+  <!-- ── App ──────────────────────────────────────────────────────────── -->
+  <section id="appSection" class="hidden">
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="sources">Data Sources</button>
+      <button class="tab-btn" data-tab="policies">Policies</button>
+      <button class="tab-btn" data-tab="review">Review &amp; Approve</button>
+      <button class="tab-btn" data-tab="history">History</button>
+    </nav>
+
+    <!-- Data Sources -->
+    <section id="tab-sources" class="tab-panel">
+      <div class="card">
+        <h2>Register a data source</h2>
+        <form id="sourceForm" class="inline-form">
+          <label>Name <input type="text" name="name" placeholder="FakeCorp Customer DB" required></label>
+          <label class="grow">Connection string
+            <input type="text" name="connection_string" placeholder="postgresql://user:pass@host:5432/db" required>
+          </label>
+          <button type="submit" class="btn btn-primary">Add source</button>
+        </form>
+        <p class="form-error" id="sourceError"></p>
+      </div>
+      <div id="sourcesList"></div>
+    </section>
+
+    <!-- Policies -->
+    <section id="tab-policies" class="tab-panel hidden">
+      <div class="card">
+        <h2>Create a retention policy</h2>
+        <form id="policyForm" class="inline-form">
+          <label>Data source
+            <select name="data_source_id" id="policySourceSelect" required></select>
+          </label>
+          <label>Table <input type="text" name="table_name" placeholder="customers" required></label>
+          <label>Inactive after (days) <input type="number" name="inactive_days" min="1" value="180" required></label>
+          <label>Action
+            <select name="action">
+              <option value="anonymise" selected>anonymise</option>
+              <option value="delete">delete</option>
+              <option value="flag">flag</option>
+            </select>
+          </label>
+          <label>Scan schedule (minutes, blank = manual only)
+            <input type="number" name="schedule_interval_minutes" min="1" placeholder="e.g. 1440 for daily">
+          </label>
+          <button type="submit" class="btn btn-primary">Create policy</button>
+        </form>
+        <p class="form-error" id="policyError"></p>
+      </div>
+      <div id="policiesList"></div>
+    </section>
+
+    <!-- Review & Approve -->
+    <section id="tab-review" class="tab-panel hidden">
+      <div class="card">
+        <h2>Review &amp; approve</h2>
+        <label>Policy
+          <select id="reviewPolicySelect"></select>
+        </label>
+        <div class="btn-row">
+          <button id="reviewScanBtn" class="btn">Run scan now</button>
+          <button id="reviewApproveBtn" class="btn btn-primary">Approve selected</button>
+          <button id="reviewEnforceBtn" class="btn btn-danger">Enforce approved</button>
+        </div>
+        <p class="form-error" id="reviewError"></p>
+        <p class="form-note">Enforce connects directly to this policy's data source and applies the action (anonymise/delete) to every currently-approved row — it does not re-run the scan condition.</p>
+      </div>
+      <div id="reviewList"></div>
+    </section>
+
+    <!-- History -->
+    <section id="tab-history" class="tab-panel hidden">
+      <div class="card">
+        <h2>Audit trail</h2>
+        <label>Policy (optional filter)
+          <select id="historyPolicySelect"><option value="">All policies</option></select>
+        </label>
+        <button id="historyRefreshBtn" class="btn">Refresh</button>
+      </div>
+      <div class="card">
+        <h3>Scan runs</h3>
+        <div id="historyScanRuns"></div>
+      </div>
+      <div class="card">
+        <h3>Actions (applied / failed)</h3>
+        <div id="historyActions"></div>
+      </div>
+    </section>
+
+  </section>
+
+</main>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

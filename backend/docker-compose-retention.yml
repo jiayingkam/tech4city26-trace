@@ -15,6 +15,12 @@ services:
     ports:
       - "5100:5100"
 
+  # The business-admin portal itself lives in ../frontend/retention-portal/
+  # as a standalone static page (deployed on Vercel, not Cloud Run) — it has
+  # no backend container of its own, so there's nothing to bring up here.
+  # For local dev, serve it with e.g. `npx serve frontend/retention-portal`
+  # and point its config.js at these compose ports (already the default).
+
   retention_guard_db:
     image: postgres:16-alpine
     environment:
