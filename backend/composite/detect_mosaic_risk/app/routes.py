@@ -44,14 +44,24 @@ _HEDGE_WORDS = (
 )
 
 # Fraction of bits retained after a user accepts a cleanup fix, by category.
-# remediate_content's apply_remediation() treats these very differently: metadata
-# findings are resolved by simply not re-writing EXIF on save — the GPS/location
-# data is genuinely gone, not approximated — so nothing should still count against
-# the user. Every other category (document/location/contact/financial/credentials)
-# goes through a real pixel-space Gaussian blur, which is a strong but imperfect
-# redaction — surrounding scene/context can still leak signal, hence a nonzero
-# residual for those. Faces don't use this penalty/refund pattern at all — see
-# _detection_to_observation's dedicated cover-bonus branch instead.
+# Only applies to IMAGE-source findings — source_type == "text" is filtered
+# out before reaching _detection_to_observation (see _observations_for_draft),
+# since a caption is never blurred; its risk is measured by the live caption
+# text via _extract_observations_cached instead, which naturally reflects
+# whatever cleanup actually happened without needing a residual estimate.
+#
+# remediate_content's apply_remediation() treats the remaining, genuinely
+# pixel-based categories very differently: metadata findings are resolved by
+# simply not re-writing EXIF on save — the GPS/location data is genuinely
+# gone, not approximated — so nothing should still count against the user.
+# Every other image-source category (document/location/contact/financial/
+# credentials) goes through a real pixel-space Gaussian blur, which is a
+# strong but imperfect redaction — surrounding scene/context can still leak
+# signal, hence a nonzero residual for those. Faces don't use this
+# penalty/refund pattern at all — see _detection_bits, which returns 0 for
+# category == "face" unconditionally; covering one is a manual, cosmetic
+# choice on the Clean-up screen with no effect on the score in either
+# direction.
 _CLEANUP_RESIDUAL_BY_CATEGORY: dict[str, float] = {
     "metadata": 0.0,
 }
@@ -239,10 +249,20 @@ def _observations_for_draft(draft: dict, detections: list[dict]) -> list[Observa
 
     Always processes both sources so caption observations are never silently dropped
     when scan_draft also found something in the image.
+
+    Excludes source_type == "text" detections from the detection-derived side:
+    scan_text's findings describe the SAME caption text_obs already extracts above,
+    so including both double-counted caption risk. It also meant confirming a post
+    granted text findings _CLEANUP_RESIDUAL_DEFAULT's 15%-kept residual — a discount
+    modelling an imperfect pixel blur — even though nothing about a caption is ever
+    blurred; confirm just marks every unedited text detection "accepted" regardless
+    of whether its caption was actually cleaned. Caption risk is measured by
+    text_obs alone now, which correctly reflects the caption's real current text.
     """
     text_obs = _extract_observations_cached(draft.get("text_content") or "")
     image_obs = _dedup_observations([
-        _detection_to_observation(d) for d in detections if d.get("detail")
+        _detection_to_observation(d) for d in detections
+        if d.get("detail") and d.get("source_type") != "text"
     ])
     return text_obs + image_obs
 
@@ -392,9 +412,12 @@ def check_mosaic_risk(owner_id):
     # bit that moves k is represented in the observations list — enforces the
     # invariant delta_bits == sum(obs.contribution_bits for obs in observations).
     # Vague detections get 0 bits; near-duplicates from the same image are deduped.
+    # source_type == "text" excluded — see _observations_for_draft for why:
+    # caption risk is measured by text_observations above, not duplicated here.
     raw_detections = _get_draft_detections(draft_id)
     image_observations = _dedup_observations([
-        _detection_to_observation(d) for d in raw_detections if d.get("detail")
+        _detection_to_observation(d) for d in raw_detections
+        if d.get("detail") and d.get("source_type") != "text"
     ])
     all_new_observations = text_observations + image_observations
 
@@ -550,7 +573,13 @@ def mosaic_trajectory(owner_id):
 
         # Published post (clean, or partially/fully remediated).
         # _detection_to_observation already gives residual bits to accepted detections.
-        image_detections = [d for d in detections if d.get("detail")]
+        # source_type == "text" excluded so caption risk is measured once, by
+        # text_obs below, not also duplicated through the detection path — see
+        # _observations_for_draft for the full reasoning. This also fixes
+        # cleanup_reliance further down, which sums over this same list.
+        image_detections = [
+            d for d in detections if d.get("detail") and d.get("source_type") != "text"
+        ]
         text_obs = _extract_observations_cached(draft.get("text_content") or "")
         image_obs = _dedup_observations([_detection_to_observation(d) for d in image_detections])
         post_observations = text_obs + image_obs
