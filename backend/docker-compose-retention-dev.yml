@@ -1,0 +1,102 @@
+# ── Local dev stack (retention_guard) ───────────────────────────────────
+# Run as an override on top of the base file, same convention as TRACE's own
+# docker-compose.yml + docker-compose-dev.yml split:
+#   docker compose --env-file ../.env -f docker-compose-retention.yml -f docker-compose-retention-dev.yml up --build
+# Brings up two disposable local Postgres containers instead of the real
+# Supabase DB (see docker-compose-retention.yml's own top comment) — day-to-
+# day local dev and testing doesn't touch production data at all. Not used
+# for CI/production — that still runs against the real Supabase DB via
+# docker-compose-retention.yml directly (i.e. Cloud Run, which builds from
+# each service's Dockerfile directly, not from either compose file).
+services:
+
+  # retention_guard's own metadata DB — business_admins/data_sources/
+  # retention_policies/audit_log's tables. NOT the fake company's data (see
+  # fake_company_db below) — these are deliberately two separate databases,
+  # same as they're two separate roles/schemas in the real Supabase project.
+  retention_guard_db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=retention_guard
+      - POSTGRES_PASSWORD=retention_guard_dev
+      - POSTGRES_DB=retention_guard
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - retention_guard_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U retention_guard -d retention_guard"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # Stands in for a real business's own database — register it as a data
+  # source through the portal/Swagger using:
+  #   postgresql://fakecorp:fakecorp_dev@fake_company_db:5432/fakecorp
+  # (service name as host, since enforce_retention reaches it over this same
+  # compose network — not host.docker.internal, that's only needed for a
+  # container reaching something running outside compose entirely.)
+  # init.sql seeds one inactive + one active sample customer on first boot,
+  # so there's always something for a demo scan to find with no manual step.
+  fake_company_db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=fakecorp
+      - POSTGRES_PASSWORD=fakecorp_dev
+      - POSTGRES_DB=fakecorp
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - fake_company_db_data:/var/lib/postgresql/data
+      - ./retention_guard/fake_company_db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fakecorp -d fakecorp"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  business_admins:
+    depends_on: !override
+      retention_guard_db:
+        condition: service_healthy
+    environment:
+      - DB_SERVER=retention_guard_db
+      - DB_NAME=retention_guard
+      - DB_USER=retention_guard
+      - DB_PASSWORD=retention_guard_dev
+
+  data_sources:
+    depends_on: !override
+      retention_guard_db:
+        condition: service_healthy
+    environment:
+      - DB_SERVER=retention_guard_db
+      - DB_NAME=retention_guard
+      - DB_USER=retention_guard
+      - DB_PASSWORD=retention_guard_dev
+
+  retention_policies:
+    depends_on: !override
+      retention_guard_db:
+        condition: service_healthy
+    environment:
+      - DB_SERVER=retention_guard_db
+      - DB_NAME=retention_guard
+      - DB_USER=retention_guard
+      - DB_PASSWORD=retention_guard_dev
+
+  audit_log:
+    depends_on: !override
+      retention_guard_db:
+        condition: service_healthy
+    environment:
+      - DB_SERVER=retention_guard_db
+      - DB_NAME=retention_guard
+      - DB_USER=retention_guard
+      - DB_PASSWORD=retention_guard_dev
+
+volumes:
+  retention_guard_db_data:
+  fake_company_db_data:
