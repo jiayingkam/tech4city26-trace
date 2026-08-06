@@ -2,12 +2,31 @@
 # A second, separate product living in this repo (backend/retention_guard/) —
 # own business_admins accounts, own Postgres metadata DB, own Swagger docs
 # aggregator — deliberately decoupled from TRACE's teen-safety services and
-# their Azure SQL metadata DB. Brought up entirely on its own:
-#   docker compose -f docker-compose-retention.yml up --build
-# Reuses the root ../.env for shared secrets (JWT_SECRET_KEY,
-# INTERNAL_API_KEY, FRONTEND_ORIGIN) plus one new var this product adds:
-# CONN_STRING_ENCRYPTION_KEY (see README). DB_* vars are set directly below,
-# not via ../.env, since they must point at retention_guard_db, not Azure.
+# their Azure SQL metadata DB.
+#
+# This base file is the production-shaped config — same role as TRACE's own
+# docker-compose.yml pointing at Azure: it expects a real, already-reachable
+# Postgres (Supabase in this project) and reads its connection details from
+# ../.env under their own RETENTION_DB_* names (deliberately NOT the plain
+# DB_SERVER/DB_NAME/DB_USER/DB_PASSWORD names TRACE's own atomic services
+# already use for Azure in that same file — this product's metadata DB is a
+# completely separate database, so it needs its own variable names to avoid
+# colliding with TRACE's).
+#
+#   cd backend
+#   docker compose --env-file ../.env -f docker-compose-retention.yml up --build
+#
+# For day-to-day local dev against disposable local Postgres containers
+# instead (no Supabase needed), use the dev override on top of this file —
+# see docker-compose-retention-dev.yml, same split TRACE's own
+# docker-compose-dev.yml makes over docker-compose.yml:
+#
+#   docker compose --env-file ../.env -f docker-compose-retention.yml -f docker-compose-retention-dev.yml up --build
+#
+# init-db runs automatically on every container boot (baked into each atomic
+# service's own Dockerfile CMD, not a separate manual step) — db.create_all()
+# is idempotent against Postgres, so this is safe against both Supabase and
+# a fresh local container alike.
 services:
 
   retention_guard_docs:
@@ -18,25 +37,10 @@ services:
   # The business-admin portal itself lives in ../frontend/retention-portal/
   # as a standalone static page (deployed on Vercel, not Cloud Run) — it has
   # no backend container of its own, so there's nothing to bring up here.
-  # For local dev, serve it with e.g. `npx serve frontend/retention-portal`
-  # and point its config.js at these compose ports (already the default).
-
-  retention_guard_db:
-    image: postgres:16-alpine
-    environment:
-      - POSTGRES_USER=retention_guard
-      - POSTGRES_PASSWORD=retention_guard_dev
-      - POSTGRES_DB=retention_guard
-    ports:
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - retention_guard_db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U retention_guard -d retention_guard"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 10s
+  # For local dev, serve it with e.g.
+  #   python3 -m http.server 5106 --directory ../frontend/retention-portal
+  # config.js auto-detects localhost and points itself at these compose
+  # ports, nothing to edit.
 
   # ── Atomic services ───────────────────────────────────────────────────────
   business_admins:
@@ -48,19 +52,10 @@ services:
       - "5101:5101"
     env_file: ../.env
     environment:
-      - DB_SERVER=retention_guard_db
-      - DB_NAME=retention_guard
-      - DB_USER=retention_guard
-      - DB_PASSWORD=retention_guard_dev
-    depends_on:
-      retention_guard_db:
-        condition: service_healthy
-    # Postgres tables via db.create_all() are idempotent to (re)create, so —
-    # unlike TRACE's own atomic services, where init-db is a separate manual
-    # command — it's safe and simpler to just run it on every boot here.
-    command: >
-      sh -c "flask --app app.app:create_app init-db &&
-             gunicorn --bind 0.0.0.0:5101 --workers 1 --threads 8 --timeout 0 app.app:'create_app()'"
+      - DB_SERVER=${RETENTION_DB_SERVER:-}
+      - DB_NAME=${RETENTION_DB_NAME:-}
+      - DB_USER=${RETENTION_DB_USER:-}
+      - DB_PASSWORD=${RETENTION_DB_PASSWORD:-}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5101/health')\""]
       interval: 10s
@@ -77,16 +72,10 @@ services:
       - "5102:5102"
     env_file: ../.env
     environment:
-      - DB_SERVER=retention_guard_db
-      - DB_NAME=retention_guard
-      - DB_USER=retention_guard
-      - DB_PASSWORD=retention_guard_dev
-    depends_on:
-      retention_guard_db:
-        condition: service_healthy
-    command: >
-      sh -c "flask --app app.app:create_app init-db &&
-             gunicorn --bind 0.0.0.0:5102 --workers 1 --threads 8 --timeout 0 app.app:'create_app()'"
+      - DB_SERVER=${RETENTION_DB_SERVER:-}
+      - DB_NAME=${RETENTION_DB_NAME:-}
+      - DB_USER=${RETENTION_DB_USER:-}
+      - DB_PASSWORD=${RETENTION_DB_PASSWORD:-}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5102/health')\""]
       interval: 10s
@@ -103,16 +92,10 @@ services:
       - "5103:5103"
     env_file: ../.env
     environment:
-      - DB_SERVER=retention_guard_db
-      - DB_NAME=retention_guard
-      - DB_USER=retention_guard
-      - DB_PASSWORD=retention_guard_dev
-    depends_on:
-      retention_guard_db:
-        condition: service_healthy
-    command: >
-      sh -c "flask --app app.app:create_app init-db &&
-             gunicorn --bind 0.0.0.0:5103 --workers 1 --threads 8 --timeout 0 app.app:'create_app()'"
+      - DB_SERVER=${RETENTION_DB_SERVER:-}
+      - DB_NAME=${RETENTION_DB_NAME:-}
+      - DB_USER=${RETENTION_DB_USER:-}
+      - DB_PASSWORD=${RETENTION_DB_PASSWORD:-}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5103/health')\""]
       interval: 10s
@@ -129,16 +112,10 @@ services:
       - "5104:5104"
     env_file: ../.env
     environment:
-      - DB_SERVER=retention_guard_db
-      - DB_NAME=retention_guard
-      - DB_USER=retention_guard
-      - DB_PASSWORD=retention_guard_dev
-    depends_on:
-      retention_guard_db:
-        condition: service_healthy
-    command: >
-      sh -c "flask --app app.app:create_app init-db &&
-             gunicorn --bind 0.0.0.0:5104 --workers 1 --threads 8 --timeout 0 app.app:'create_app()'"
+      - DB_SERVER=${RETENTION_DB_SERVER:-}
+      - DB_NAME=${RETENTION_DB_NAME:-}
+      - DB_USER=${RETENTION_DB_USER:-}
+      - DB_PASSWORD=${RETENTION_DB_PASSWORD:-}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5104/health')\""]
       interval: 10s
@@ -170,6 +147,3 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
-
-volumes:
-  retention_guard_db_data:

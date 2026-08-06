@@ -146,7 +146,7 @@ docker compose exec quarantine_items flask --app app.app:create_app init-db
 
 Only re-run it for the service(s) whose **models changed** — it's harmless to run against a service with no new tables, it just no-ops.
 
-## Running the Frontend Locally
+### Running the Frontend Locally
 
 ```bash
 cd frontend
@@ -158,7 +158,7 @@ Opens at `http://localhost:3000`. The upload/scan/remediation flow calls `upload
 
 ---
 
-## Running Test Scripts
+## 4. Running Test Scripts
 
 ### Unit tests (mocked database)
 
@@ -214,7 +214,7 @@ docker compose -f docker-compose.yml down
 
 Output prints `[ok]` / `[warn]` / `[FAIL]` per step and exits non-zero if anything hard-fails. `[warn]` lines (e.g. the LLM routing to quarantine instead of remediate) aren't failures — those specific branches are LLM-dependent and treated as informational.
 
-## Accessing Swagger
+## 5. Accessing Swagger
 
 Swagger documents are used to design, build, document, and consume REST APIs. They provide a standardized, machine-readable blueprint that details every endpoint, parameter, and response, allowing developers and automated tools to easily understand and interact with an API.
 
@@ -239,13 +239,13 @@ For example:
 
 ---
 
-## Retention Guard — standalone PDPA data-retention API
+# Retention Guard — standalone PDPA data-retention API
 
 A second, separate product living in this repo (`backend/retention_guard/`) — not part of TRACE's teen-safety scanner. A business registers a connection to their own SQL database, classifies which columns hold PII, defines retention rules ("anonymise customers inactive >180 days"), and this API scans/enforces those rules on a schedule, keeping a full audit trail as compliance evidence. See `.claude/plans` (or ask whoever built it) for the full design writeup — this section is just enough to run it.
 
 It has its own admin accounts (`business_admins`, unrelated to TRACE's `users`), its own Postgres metadata DB, its own Swagger docs aggregator, and its own admin-facing web portal — brought up entirely independently of the rest of TRACE.
 
-### Port mappings
+## 1. Port Mappings
 
 | Port | Service              | Type      |
 | ---- | -------------------- | --------- |
@@ -257,62 +257,81 @@ It has its own admin accounts (`business_admins`, unrelated to TRACE's `users`),
 | 5105 | Enforce Retention    | composite |
 | 5106 | Portal               | frontend  |
 
-### Extra prerequisite
+## 2. Extra Prerequisite
 
-Add one more variable to the root `.env` (alongside `JWT_SECRET_KEY`/`INTERNAL_API_KEY`, which this product reuses as-is):
+Add these to the root `.env` (alongside `JWT_SECRET_KEY`/`INTERNAL_API_KEY`, which this product reuses as-is):
 
 ```env
 CONN_STRING_ENCRYPTION_KEY=<Fernet key — generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())">
+RETENTION_DB_SERVER=<Supabase pooler host — only needed to run docker-compose-retention.yml alone against real prod infra, see below>
+RETENTION_DB_NAME=<...>
+RETENTION_DB_USER=<...>
+RETENTION_DB_PASSWORD=<...>
 ```
 
-This encrypts registered data sources' connection strings at rest (`shared/trace_crypto`) — only the `data_sources` service ever decrypts them.
+`CONN_STRING_ENCRYPTION_KEY` encrypts registered data sources' connection strings at rest (`shared/trace_crypto`) — only the `data_sources` service ever decrypts them. The `RETENTION_DB_*` vars are deliberately under their own names, not TRACE's existing `DB_SERVER`/`DB_NAME`/`DB_USER`/`DB_PASSWORD` — this product's metadata DB (Supabase) is a completely separate database from TRACE's Azure SQL one, so it needs its own variable names to avoid colliding with those.
 
-### Running it
+## 3. Running backend locally
+
+Same base-file + dev-override split as TRACE's own `docker-compose.yml`/`docker-compose-dev.yml` (see "Running the Program Locally" above): `docker-compose-retention.yml` alone is the production-shaped config (expects a real, already-reachable Postgres — Supabase — via the `RETENTION_DB_*` vars above); `docker-compose-retention-dev.yml` is an override on top of it that swaps in two disposable local Postgres containers instead, for day-to-day local dev.
 
 ```bash
 cd backend
-docker compose -f docker-compose-retention.yml up --build
+docker compose -f docker-compose-retention.yml -f docker-compose-retention-dev.yml up --build
 ```
 
-This brings up its own `retention_guard_db` Postgres container plus the five backend services, wired together — no dependency on TRACE's own `azure_db`/`local_db` or any other TRACE service. Tables are created automatically on every boot (`db.create_all()` is idempotent against Postgres, so unlike TRACE's own Azure-backed `init-db` step, there's nothing manual to run here). Data persists across restarts in the `retention_guard_db_data` volume.
+This brings up `retention_guard_db` (this product's own metadata DB — admins/data sources/policies/audit log) and `fake_company_db` (stands in for a real business's own database, seeded on first boot with one inactive and one active sample customer via `retention_guard/fake_company_db/init.sql`) alongside the five backend services — no dependency on TRACE's own `azure_db`/`local_db` or any other TRACE service. Tables are created automatically on every boot (`db.create_all()` is idempotent against Postgres, baked into each atomic service's own Dockerfile `CMD` — unlike TRACE's own Azure-backed `init-db` step, there's nothing manual to run here, and it works the same way whether pointed at a local container or Supabase). Data persists across restarts in the `retention_guard_db_data`/`fake_company_db_data` volumes.
 
 ```bash
-docker compose -f docker-compose-retention.yml down        # stop
-docker compose -f docker-compose-retention.yml down -v      # stop + wipe data
+docker compose -f docker-compose-retention.yml -f docker-compose-retention-dev.yml down        # stop
+docker compose -f docker-compose-retention.yml -f docker-compose-retention-dev.yml down -v      # stop + wipe data
 ```
 
-The **portal** (see below) is the actual way a business admin would use this — serve it locally with e.g. `npx serve frontend/retention-portal` (its `config.js` already defaults to these compose ports) and walk through: **sign up → register your fake company's data source (its own connection string, not TRACE's DB) → classify its PII/subject-id/activity-timestamp columns → create a retention policy (optionally with a scan schedule) → run a scan → review matches under Review & Approve → approve → enforce → confirm the rows were actually anonymised/deleted on the source.** The combined Swagger UI at `http://localhost:5100/docs` still exists alongside it for exploring the raw API/internal routes directly.
+The **portal** (section 4 below) is the actual way a business admin would use this — once it's running, walk through: **sign up → register the fake company data source (connection string `postgresql://fakecorp:fakecorp_dev@fake_company_db:5432/fakecorp` — service name as host, since `enforce_retention` reaches it over the same compose network) → classify its PII/subject-id/activity-timestamp columns → create a retention policy (optionally with a scan schedule) → run a scan → review matches under Review & Approve → approve → enforce → confirm the rows were actually anonymised/deleted on the source.** The combined Swagger UI at `http://localhost:5100/docs` still exists alongside it for exploring the raw API/internal routes directly.
 
-Note: the data source you register must be a database this compose network (or, once deployed, Cloud Run) can actually reach — a Postgres instance only listening on `localhost` outside this compose network won't work. For local dev, add it as another service on the same Docker network; once deployed, it needs a real public/reachable endpoint (a small hosted Postgres — Cloud SQL, Supabase, Neon, etc.).
+Running `docker-compose-retention.yml` alone (no dev override, real `RETENTION_DB_*` values in `.env`) validates against the real Supabase DB, same purpose as TRACE's own "Running against the real Azure DB" section above — needs `--env-file ../.env` so compose can resolve those vars during its own YAML interpolation, not just pass them into containers:
 
-### Portal
+```bash
+docker compose --env-file ../.env -f docker-compose-retention.yml up --build
+```
 
-`frontend/retention-portal/` — a small vanilla HTML/JS single page (no framework, no build step), living under the repo's top-level `frontend/` (strictly frontend code) rather than `backend/`, and kept separate from TRACE's own Vue/Vite app since this is a different product for a different audience. It's pure static output — no server of its own — so it deploys straight to **Vercel** rather than Cloud Run. `config.js` is the one file to edit (same "one hardcoded place" idea as `docs/app.py`'s Swagger `urls` list): it defines `window.RG_CONFIG` with the 5 backend services' base URLs, defaulting to the local compose ports; point it at the deployed Cloud Run URLs before deploying to Vercel.
+## 4. Running Web Portal Locally
+
+```Shell
+python3 -m http.server 5106 --directory frontend/retention-portal
+
+// open http://localhost:5106/ on your browser
+```
+
+`frontend/retention-portal/` — a small vanilla HTML/JS single page (no framework, no build step), living under the repo's top-level `frontend/` (strictly frontend code) rather than `backend/`, and kept separate from TRACE's own Vue/Vite app since this is a different product for a different audience. It's pure static output — no server of its own — so it deploys straight to **Vercel** rather than Cloud Run. `config.js` defines `window.RG_CONFIG` with the 5 backend services' base URLs and auto-detects `localhost`/`127.0.0.1` vs. any other hostname to pick local compose ports or the deployed Cloud Run URLs — nothing to hand-edit before testing locally or before deploying.
 
 It's a thin client over the existing APIs — no new backend endpoints exist because of it. Tabs: **Data Sources** (register + classify columns), **Policies** (create/enable/disable, including the scan schedule), **Review & Approve** (see proposed deletions, approve them, trigger scan/enforce), **History** (scan runs + applied/failed actions, the compliance-evidence view).
 
-### Scheduled scanning (Cloud Scheduler)
+## 5. Deploying
 
-A policy's `schedule_interval_minutes` field and `enforce_retention`'s `POST /internal/run-scheduled-scans` endpoint (compare-and-swap claim via `retention_policies`' `/internal/policies/<id>/claim`, so it's safe even if Cloud Run runs more than one instance) only actually run on a timer once something calls that endpoint periodically — nothing does by default. In production this is a **Google Cloud Scheduler** job, not an in-process timer:
+The 5 backend services deploy the same manual, one-service-at-a-time way as the rest of TRACE (see section 3 above) — each gets its own public HTTPS URL. Set `CONN_STRING_ENCRYPTION_KEY` alongside `JWT_SECRET_KEY`/`INTERNAL_API_KEY` in each service's Cloud Run environment/secrets.
+
+The portal deploys separately, to **Vercel**: create a Vercel project pointed at this repo with **Root Directory** set to `frontend/retention-portal` (it's a static site — no build command needed; `config.js` already resolves to the live Cloud Run URLs on any non-localhost hostname). Afterward, add the Vercel domain to the 5 backend services' `FRONTEND_ORIGIN` env var (comma-separated alongside the docs URL already there) so browser CORS allows the portal's fetch calls.
+
+## 6. Scheduled Scanning (Cloud Scheduler)
+
+A policy's `schedule_interval_minutes` field and `enforce_retention`'s `POST /internal/run-scheduled-scans` endpoint (compare-and-swap claim via `retention_policies`' `/internal/policies/<id>/claim`, so it's safe even if Cloud Run runs more than one instance) only actually run on a timer once something calls that endpoint periodically. In production, a **Google Cloud Scheduler** job does this — already set up as `retention-scheduled-scans` (region `asia-southeast1`, `*/15 * * * *`, `Asia/Singapore`), POSTing to `enforce_retention`'s `/internal/run-scheduled-scans` with the `X-Internal-Key` header:
 
 ```bash
 gcloud scheduler jobs create http retention-scheduled-scans \
   --location=asia-southeast1 \
   --schedule="*/15 * * * *" \
-  --uri="https://retention-enforce-retention-<hash>.asia-southeast1.run.app/internal/run-scheduled-scans" \
+  --uri="https://retention-enforce-retention-658022855661.asia-southeast1.run.app/internal/run-scheduled-scans" \
   --http-method=POST \
-  --headers="X-Internal-Key=<INTERNAL_API_KEY>"
+  --headers="X-Internal-Key=<INTERNAL_API_KEY>" \
+  --time-zone="Asia/Singapore"
 ```
 
-One cadence (every 15 min above) covers every policy regardless of its own `schedule_interval_minutes` — the claim logic only picks up policies that are actually due, so a policy scheduled for "daily" simply gets skipped by every run except the one where it's due. It only ever runs **dry-run scans** automatically — anonymise/delete always needs a human to approve in the portal first.
+One job/cadence covers every policy regardless of its own `schedule_interval_minutes` — the claim logic only picks up policies that are actually due, so a policy scheduled for "daily" simply gets skipped by every run except the one where it's due. It only ever runs **dry-run scans** automatically — anonymise/delete always needs a human to approve in the portal first.
 
-### Deploying
+There's no local equivalent of this — Cloud Scheduler can only reach a public URL, never `localhost`. For local testing, use the portal's **"Run scan now"** button instead of waiting on a timer.
 
-The 5 backend services deploy the same manual, one-service-at-a-time way as the rest of TRACE (see "Port mappings" above) — each gets its own public HTTPS URL. Set `CONN_STRING_ENCRYPTION_KEY` alongside `JWT_SECRET_KEY`/`INTERNAL_API_KEY` in each service's Cloud Run environment/secrets.
-
-The portal deploys separately, to **Vercel**: create a Vercel project pointed at this repo with **Root Directory** set to `frontend/retention-portal` (it's a static site — no build command needed). Before deploying, edit `config.js` to the deployed Cloud Run URLs. Afterward, add the Vercel domain to the 5 backend services' `FRONTEND_ORIGIN` env var (comma-separated alongside the docs URL already there) so browser CORS allows the portal's fetch calls.
-
-### Running its tests
+## 7. Running Its Tests
 
 ```bash
 pip install -r backend/retention_guard/atomic/business_admins/requirements-dev.txt  # pytest + cryptography, shared by all five services
@@ -321,6 +340,6 @@ python -m pytest backend/testing/atomic/business_admins backend/testing/atomic/d
   backend/testing/composite/enforce_retention
 ```
 
-Run from the **repo root**, not via Docker — every test file imports its service under a fully-qualified path (`from backend.retention_guard.atomic.business_admins.app.routes import ...`), which only resolves when the repo root itself is on `sys.path`. TRACE's own `docker-compose.yml`/`docker-compose-test.yml` route (see "Unit tests (mocked database)" above) doesn't actually give you that: each service's container only ever has its own flattened `/service/app` — there's no `backend/` tree inside it for that import to resolve against, confirmed while building this feature. That's a pre-existing gap in the Docker test runner, not something introduced here, and it's why retention_guard's tests are documented to run locally instead rather than copying that pattern into more services.
+Run from the **repo root**, not via Docker — every test file imports its service under a fully-qualified path (`from backend.retention_guard.atomic.business_admins.app.routes import ...`), which only resolves when the repo root itself is on `sys.path`. TRACE's own `docker-compose.yml`/`docker-compose-test.yml` route (see section 4 of "Running Test Scripts" above) doesn't actually give you that: each service's container only ever has its own flattened `/service/app` — there's no `backend/` tree inside it for that import to resolve against, confirmed while building this feature. That's a pre-existing gap in the Docker test runner, not something introduced here, and it's why retention_guard's tests are documented to run locally instead rather than copying that pattern into more services.
 
 `retention_engine.py`'s tests (the query-builder/whitelist logic — the highest-value target) need no DB or service running at all — they exercise a real file-backed SQLite engine directly.
