@@ -1,4 +1,7 @@
 <script setup>
+import { parseCoachMessage } from '../chatFormat.js'
+import ChatRichText from './ChatRichText.vue'
+
 defineProps({
   messages: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
@@ -37,7 +40,24 @@ defineEmits(['update:modelValue', 'send'])
         :key="i"
         class="chat-bubble"
         :class="m.role === 'user' ? 'chat-bubble--user' : 'chat-bubble--coach'"
-      >{{ m.content }}</div>
+      >
+        <template v-if="m.role === 'user'">{{ m.content }}</template>
+        <template v-else>
+          <template v-for="(block, bi) in parseCoachMessage(m.content)" :key="bi">
+            <div v-if="block.type === 'sim'" class="sim-message">
+              <p class="sim-label">⚠️ Simulated — not a real message</p>
+              <p v-for="(p, pi) in block.paragraphs" :key="pi" class="sim-text">
+                <ChatRichText :segments="p" />
+              </p>
+            </div>
+            <p v-else-if="block.type === 'option'" class="chat-option">
+              <span class="chat-option-letter">{{ block.letter }}</span>
+              <ChatRichText :segments="block.segments" />
+            </p>
+            <p v-else class="chat-para"><ChatRichText :segments="block.segments" /></p>
+          </template>
+        </template>
+      </div>
       <div
         v-if="loading"
         class="chat-bubble chat-bubble--coach chat-bubble--typing"
@@ -109,19 +129,66 @@ defineEmits(['update:modelValue', 'send'])
   font-size: 0.8rem;
   padding: 7px 10px;
   border-radius: 12px;
-  max-width: 85%;
-  line-height: 1.35;
-  white-space: pre-wrap;
+  line-height: 1.5;
 }
 .chat-bubble--user {
   align-self: flex-end;
+  max-width: 85%;
+  white-space: pre-wrap;
   background: var(--trace-coral);
   color: #fff;
 }
 .chat-bubble--coach {
   align-self: flex-start;
+  max-width: 92%;
   background: #f0f2f6;
   color: #172235;
+}
+.chat-panel--fullscreen .chat-bubble--coach {
+  max-width: 100%;
+}
+.chat-para {
+  margin: 0 0 6px;
+  white-space: pre-wrap;
+}
+.chat-para:last-child {
+  margin-bottom: 0;
+}
+.chat-option {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 4px;
+}
+.chat-option:last-child {
+  margin-bottom: 0;
+}
+.chat-option-letter {
+  flex: 0 0 auto;
+  width: 1.1em;
+  font-weight: 700;
+}
+.sim-message {
+  background: #fffaf0;
+  border: 1px solid #f3d48b;
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin: 6px 0;
+}
+.sim-label {
+  margin: 0 0 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #7a4d00;
+}
+.sim-text {
+  margin: 0;
+  white-space: pre-wrap;
+  color: #7a4d00;
+}
+.sim-text:not(:last-child) {
+  margin-bottom: 4px;
 }
 .chat-bubble--typing {
   display: inline-flex;

@@ -217,7 +217,8 @@ async function sendChat(text) {
   padding: 16px;
 }
 .chat-fullscreen-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 12px;
   padding-bottom: 12px;
@@ -225,6 +226,7 @@ async function sendChat(text) {
   border-bottom: 1px solid var(--trace-line);
 }
 .chat-back-btn {
+  justify-self: start;
   background: none;
   border: none;
   font-size: 0.85rem;
@@ -236,5 +238,6 @@ async function sendChat(text) {
 .chat-fullscreen-title {
   font-weight: 700;
   font-size: 0.95rem;
+  text-align: center;
 }
 </style>
