@@ -166,6 +166,15 @@ function badge(status) {
   return `<span class="badge badge-${status}">${status}</span>`;
 }
 
+// "dry_run"/"enforce" are the real API values (ScanRun.mode — audit_log's
+// stored contract, referenced by enforce_retention and covered by tests),
+// but they're backend jargon a business admin shouldn't have to parse —
+// this is a display-only relabel, nothing downstream reads these strings.
+const MODE_LABELS = { dry_run: "Scan", enforce: "Enforce" };
+function modeLabel(mode) {
+  return MODE_LABELS[mode] || mode;
+}
+
 // ── Data Sources ────────────────────────────────────────────────────────
 
 function wireSourceForm() {
@@ -214,11 +223,12 @@ function renderDataSources() {
         <p class="empty-note">Loading columns…</p>
       </div>
       <form class="inline-form add-column-form">
-        <label>Table <input type="text" name="table_name" required placeholder="customers"></label>
-        <label>Column <input type="text" name="column_name" required placeholder="email"></label>
+        <label>Table Name<input type="text" name="table_name" required placeholder="customers"></label>
+        <label>Column / Attribute<input type="text" name="column_name" required placeholder="email"></label>
         <label>Role
           <select name="column_role">
-            <option value="pii">pii</option>
+            <option value="pii">personal identifiable information</option>
+            <option value="finance_data">financial data</option>
             <option value="subject_id">subject_id</option>
             <option value="activity_timestamp">activity_timestamp</option>
           </select>
@@ -268,7 +278,7 @@ async function loadClassifiedColumns(sourceId, container) {
   }
   container.innerHTML = `
     <table>
-      <thead><tr><th>Table</th><th>Column</th><th>Role</th><th></th></tr></thead>
+      <thead><tr><th>Table Name</th><th>Column / Attribute</th><th>Role</th><th></th></tr></thead>
       <tbody>
         ${columns
           .map(
@@ -492,7 +502,7 @@ async function refreshHistory() {
           ${runs
             .map(
               (r) => `<tr>
-                <td>${r.mode}</td>
+                <td>${modeLabel(r.mode)}</td>
                 <td>${badge(r.status)}</td>
                 <td>${r.rows_scanned}</td>
                 <td>${r.rows_matched}</td>
