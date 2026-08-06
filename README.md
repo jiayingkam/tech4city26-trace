@@ -236,3 +236,67 @@ For example:
 
 - `http://localhost:5001/swagger` — Users
 - `http://localhost:5002/swagger` — Content Drafts
+
+---
+
+## Retention Guard — standalone PDPA data-retention API
+
+A second, separate product living in this repo (`backend/retention_guard/`) — not part of TRACE's teen-safety scanner. A business registers a connection to their own SQL database, classifies which columns hold PII, defines retention rules ("anonymise customers inactive >180 days"), and this API scans/enforces those rules on a schedule, keeping a full audit trail as compliance evidence. See `.claude/plans` (or ask whoever built it) for the full design writeup — this section is just enough to run it.
+
+It has its own admin accounts (`business_admins`, unrelated to TRACE's `users`), its own Postgres metadata DB, and its own Swagger docs aggregator — brought up entirely independently of the rest of TRACE.
+
+### Port mappings
+
+| Port | Service              | Type      |
+| ---- | -------------------- | --------- |
+| 5100 | Retention Guard Docs | docs      |
+| 5101 | Business Admins      | atomic    |
+| 5102 | Data Sources         | atomic    |
+| 5103 | Retention Policies   | atomic    |
+| 5104 | Audit Log            | atomic    |
+| 5105 | Enforce Retention    | composite |
+
+### Extra prerequisite
+
+Add one more variable to the root `.env` (alongside `JWT_SECRET_KEY`/`INTERNAL_API_KEY`, which this product reuses as-is):
+
+```env
+CONN_STRING_ENCRYPTION_KEY=<Fernet key — generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())">
+```
+
+This encrypts registered data sources' connection strings at rest (`shared/trace_crypto`) — only the `data_sources` service ever decrypts them.
+
+### Running it
+
+```bash
+cd backend
+docker compose -f docker-compose-retention.yml up --build
+```
+
+This brings up its own `retention_guard_db` Postgres container plus all five services, wired together — no dependency on TRACE's own `azure_db`/`local_db` or any other TRACE service. Tables are created automatically on every boot (`db.create_all()` is idempotent against Postgres, so unlike TRACE's own Azure-backed `init-db` step, there's nothing manual to run here). Data persists across restarts in the `retention_guard_db_data` volume.
+
+```bash
+docker compose -f docker-compose-retention.yml down        # stop
+docker compose -f docker-compose-retention.yml down -v      # stop + wipe data
+```
+
+Open the combined Swagger UI at `http://localhost:5100/docs` and walk through: **signup → login → register your fake company's data source (its own connection string, not TRACE's DB) → classify its PII/subject-id/activity-timestamp columns → create a retention policy → dry-run scan → review matches in the audit log → approve → enforce → confirm the rows were actually anonymised/deleted on the source.**
+
+Note: the data source you register must be a database this compose network (or, once deployed, Cloud Run) can actually reach — a Postgres instance only listening on `localhost` outside this compose network won't work. For local dev, add it as another service on the same Docker network; once deployed, it needs a real public/reachable endpoint (a small hosted Postgres — Cloud SQL, Supabase, Neon, etc.).
+
+### Deploying
+
+Same manual, one-service-at-a-time Cloud Run deploy as the rest of TRACE (see "Service Port Mappings" note above) — each of the 5 services gets its own public HTTPS URL. Set `CONN_STRING_ENCRYPTION_KEY` alongside `JWT_SECRET_KEY`/`INTERNAL_API_KEY` in each service's Cloud Run environment/secrets.
+
+### Running its tests
+
+```bash
+pip install -r backend/retention_guard/atomic/business_admins/requirements-dev.txt  # pytest + cryptography, shared by all five services
+python -m pytest backend/testing/atomic/business_admins backend/testing/atomic/data_sources \
+  backend/testing/atomic/retention_policies backend/testing/atomic/audit_log \
+  backend/testing/composite/enforce_retention
+```
+
+Run from the **repo root**, not via Docker — every test file imports its service under a fully-qualified path (`from backend.retention_guard.atomic.business_admins.app.routes import ...`), which only resolves when the repo root itself is on `sys.path`. TRACE's own `docker-compose.yml`/`docker-compose-test.yml` route (see "Unit tests (mocked database)" above) doesn't actually give you that: each service's container only ever has its own flattened `/service/app` — there's no `backend/` tree inside it for that import to resolve against, confirmed while building this feature. That's a pre-existing gap in the Docker test runner, not something introduced here, and it's why retention_guard's tests are documented to run locally instead rather than copying that pattern into more services.
+
+`retention_engine.py`'s tests (the query-builder/whitelist logic — the highest-value target) need no DB or service running at all — they exercise a real file-backed SQLite engine directly.

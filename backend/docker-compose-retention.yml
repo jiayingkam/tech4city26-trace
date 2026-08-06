@@ -1,0 +1,164 @@
+# ── retention_guard: standalone PDPA data-retention API ────────────────────
+# A second, separate product living in this repo (backend/retention_guard/) —
+# own business_admins accounts, own Postgres metadata DB, own Swagger docs
+# aggregator — deliberately decoupled from TRACE's teen-safety services and
+# their Azure SQL metadata DB. Brought up entirely on its own:
+#   docker compose -f docker-compose-retention.yml up --build
+# Reuses the root ../.env for shared secrets (JWT_SECRET_KEY,
+# INTERNAL_API_KEY, FRONTEND_ORIGIN) plus one new var this product adds:
+# CONN_STRING_ENCRYPTION_KEY (see README). DB_* vars are set directly below,
+# not via ../.env, since they must point at retention_guard_db, not Azure.
+services:
+
+  retention_guard_docs:
+    build: ./retention_guard/docs
+    ports:
+      - "5100:5100"
+
+  retention_guard_db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=retention_guard
+      - POSTGRES_PASSWORD=retention_guard_dev
+      - POSTGRES_DB=retention_guard
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - retention_guard_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U retention_guard -d retention_guard"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # ── Atomic services ───────────────────────────────────────────────────────
+  business_admins:
+    build:
+      context: .
+      dockerfile: retention_guard/atomic/business_admins/Dockerfile
+    ports:
+      - "5101:5101"
+    env_file: ../.env
+    environment:
+      - DB_SERVER=retention_guard_db
+      - DB_NAME=retention_guard
+      - DB_USER=retention_guard
+      - DB_PASSWORD=retention_guard_dev
+    depends_on:
+      retention_guard_db:
+        condition: service_healthy
+    # Postgres tables via db.create_all() are idempotent to (re)create, so —
+    # unlike TRACE's own atomic services, where init-db is a separate manual
+    # command — it's safe and simpler to just run it on every boot here.
+    command: >
+      sh -c "flask --app app.app:create_app init-db &&
+             gunicorn --bind 0.0.0.0:5101 --workers 1 --threads 8 --timeout 0 app.app:'create_app()'"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5101/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  data_sources:
+    build:
+      context: .
+      dockerfile: retention_guard/atomic/data_sources/Dockerfile
+    ports:
+      - "5102:5102"
+    env_file: ../.env
+    environment:
+      - DB_SERVER=retention_guard_db
+      - DB_NAME=retention_guard
+      - DB_USER=retention_guard
+      - DB_PASSWORD=retention_guard_dev
+    depends_on:
+      retention_guard_db:
+        condition: service_healthy
+    command: >
+      sh -c "flask --app app.app:create_app init-db &&
+             gunicorn --bind 0.0.0.0:5102 --workers 1 --threads 8 --timeout 0 app.app:'create_app()'"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5102/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  retention_policies:
+    build:
+      context: .
+      dockerfile: retention_guard/atomic/retention_policies/Dockerfile
+    ports:
+      - "5103:5103"
+    env_file: ../.env
+    environment:
+      - DB_SERVER=retention_guard_db
+      - DB_NAME=retention_guard
+      - DB_USER=retention_guard
+      - DB_PASSWORD=retention_guard_dev
+    depends_on:
+      retention_guard_db:
+        condition: service_healthy
+    command: >
+      sh -c "flask --app app.app:create_app init-db &&
+             gunicorn --bind 0.0.0.0:5103 --workers 1 --threads 8 --timeout 0 app.app:'create_app()'"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5103/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  audit_log:
+    build:
+      context: .
+      dockerfile: retention_guard/atomic/audit_log/Dockerfile
+    ports:
+      - "5104:5104"
+    env_file: ../.env
+    environment:
+      - DB_SERVER=retention_guard_db
+      - DB_NAME=retention_guard
+      - DB_USER=retention_guard
+      - DB_PASSWORD=retention_guard_dev
+    depends_on:
+      retention_guard_db:
+        condition: service_healthy
+    command: >
+      sh -c "flask --app app.app:create_app init-db &&
+             gunicorn --bind 0.0.0.0:5104 --workers 1 --threads 8 --timeout 0 app.app:'create_app()'"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5104/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── Composite service ────────────────────────────────────────────────────
+  enforce_retention:
+    build:
+      context: .
+      dockerfile: retention_guard/composite/enforce_retention/Dockerfile
+    ports:
+      - "5105:5105"
+    env_file: ../.env
+    depends_on:
+      business_admins:
+        condition: service_healthy
+      data_sources:
+        condition: service_healthy
+      retention_policies:
+        condition: service_healthy
+      audit_log:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5105/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  retention_guard_db_data:
