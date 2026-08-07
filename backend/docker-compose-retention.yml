@@ -1,0 +1,149 @@
+# ── retention_guard: standalone PDPA data-retention API ────────────────────
+# A second, separate product living in this repo (backend/retention_guard/) —
+# own business_admins accounts, own Postgres metadata DB, own Swagger docs
+# aggregator — deliberately decoupled from TRACE's teen-safety services and
+# their Azure SQL metadata DB.
+#
+# This base file is the production-shaped config — same role as TRACE's own
+# docker-compose.yml pointing at Azure: it expects a real, already-reachable
+# Postgres (Supabase in this project) and reads its connection details from
+# ../.env under their own RETENTION_DB_* names (deliberately NOT the plain
+# DB_SERVER/DB_NAME/DB_USER/DB_PASSWORD names TRACE's own atomic services
+# already use for Azure in that same file — this product's metadata DB is a
+# completely separate database, so it needs its own variable names to avoid
+# colliding with TRACE's).
+#
+#   cd backend
+#   docker compose --env-file ../.env -f docker-compose-retention.yml up --build
+#
+# For day-to-day local dev against disposable local Postgres containers
+# instead (no Supabase needed), use the dev override on top of this file —
+# see docker-compose-retention-dev.yml, same split TRACE's own
+# docker-compose-dev.yml makes over docker-compose.yml:
+#
+#   docker compose --env-file ../.env -f docker-compose-retention.yml -f docker-compose-retention-dev.yml up --build
+#
+# init-db runs automatically on every container boot (baked into each atomic
+# service's own Dockerfile CMD, not a separate manual step) — db.create_all()
+# is idempotent against Postgres, so this is safe against both Supabase and
+# a fresh local container alike.
+services:
+
+  retention_guard_docs:
+    build: ./retention_guard/docs
+    ports:
+      - "5100:5100"
+
+  # The business-admin portal itself lives in ../frontend/retention-portal/
+  # as a standalone static page (deployed on Vercel, not Cloud Run) — it has
+  # no backend container of its own, so there's nothing to bring up here.
+  # For local dev, serve it with e.g.
+  #   python3 -m http.server 5106 --directory ../frontend/retention-portal
+  # config.js auto-detects localhost and points itself at these compose
+  # ports, nothing to edit.
+
+  # ── Atomic services ───────────────────────────────────────────────────────
+  business_admins:
+    platform: linux/amd64  # Apple Silicon builds default to arm64 otherwise, which Cloud Run rejects
+    build:
+      context: .
+      dockerfile: retention_guard/atomic/business_admins/Dockerfile
+    ports:
+      - "5101:5101"
+    env_file: ../.env
+    environment:
+      - DB_SERVER=${RETENTION_DB_SERVER:-}
+      - DB_NAME=${RETENTION_DB_NAME:-}
+      - DB_USER=${RETENTION_DB_USER:-}
+      - DB_PASSWORD=${RETENTION_DB_PASSWORD:-}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5101/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  data_sources:
+    platform: linux/amd64  # Apple Silicon builds default to arm64 otherwise, which Cloud Run rejects
+    build:
+      context: .
+      dockerfile: retention_guard/atomic/data_sources/Dockerfile
+    ports:
+      - "5102:5102"
+    env_file: ../.env
+    environment:
+      - DB_SERVER=${RETENTION_DB_SERVER:-}
+      - DB_NAME=${RETENTION_DB_NAME:-}
+      - DB_USER=${RETENTION_DB_USER:-}
+      - DB_PASSWORD=${RETENTION_DB_PASSWORD:-}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5102/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  retention_policies:
+    platform: linux/amd64  # Apple Silicon builds default to arm64 otherwise, which Cloud Run rejects
+    build:
+      context: .
+      dockerfile: retention_guard/atomic/retention_policies/Dockerfile
+    ports:
+      - "5103:5103"
+    env_file: ../.env
+    environment:
+      - DB_SERVER=${RETENTION_DB_SERVER:-}
+      - DB_NAME=${RETENTION_DB_NAME:-}
+      - DB_USER=${RETENTION_DB_USER:-}
+      - DB_PASSWORD=${RETENTION_DB_PASSWORD:-}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5103/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  audit_log:
+    platform: linux/amd64  # Apple Silicon builds default to arm64 otherwise, which Cloud Run rejects
+    build:
+      context: .
+      dockerfile: retention_guard/atomic/audit_log/Dockerfile
+    ports:
+      - "5104:5104"
+    env_file: ../.env
+    environment:
+      - DB_SERVER=${RETENTION_DB_SERVER:-}
+      - DB_NAME=${RETENTION_DB_NAME:-}
+      - DB_USER=${RETENTION_DB_USER:-}
+      - DB_PASSWORD=${RETENTION_DB_PASSWORD:-}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5104/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── Composite service ────────────────────────────────────────────────────
+  enforce_retention:
+    platform: linux/amd64  # Apple Silicon builds default to arm64 otherwise, which Cloud Run rejects
+    build:
+      context: .
+      dockerfile: retention_guard/composite/enforce_retention/Dockerfile
+    ports:
+      - "5105:5105"
+    env_file: ../.env
+    depends_on:
+      business_admins:
+        condition: service_healthy
+      data_sources:
+        condition: service_healthy
+      retention_policies:
+        condition: service_healthy
+      audit_log:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5105/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s

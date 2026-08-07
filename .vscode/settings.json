@@ -1,0 +1,26 @@
+{
+    "sqltools.connections": [
+        {
+            "ssh": "Disabled",
+            "previewLimit": 50,
+            "server": "localhost",
+            "port": 5432,
+            "driver": "PostgreSQL",
+            "name": "Retention Guard (local)",
+            "database": "retention_guard",
+            "username": "retention_guard",
+            "password": "retention_guard_dev"
+        },
+        {
+            "ssh": "Disabled",
+            "previewLimit": 50,
+            "server": "localhost",
+            "port": 5433,
+            "driver": "PostgreSQL",
+            "name": "Fake Company DB (Local)",
+            "database": "fakecorp",
+            "username": "fakecorp",
+            "password": "fakecorp_dev"
+        }
+    ]
+}
