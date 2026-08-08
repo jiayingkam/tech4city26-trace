@@ -9,7 +9,7 @@ const _key = '__mosaicCache'
 const _getCache = () => (window[_key] ?? null)
 const _setCache = (v) => { window[_key] = v }
 
-defineEmits(['back', 'history', 'settings', 'mosaic', 'logout'])
+defineEmits(['back', 'history', 'settings', 'mosaic', 'logout', 'quiz'])
 
 // Pre-populate from cache synchronously so repeated visits never show the spinner.
 const trajectory = ref(_getCache()?.trajectory || [])
@@ -187,7 +187,7 @@ onMounted(load)
   <div class="app-screen mosaic-screen">
 
     <div class="app-header">
-      <HamburgerMenu @history="$emit('history')" @settings="$emit('settings')" @mosaic="$emit('mosaic')" @logout="$emit('logout')" />
+      <HamburgerMenu @history="$emit('history')" @settings="$emit('settings')" @mosaic="$emit('mosaic')" @logout="$emit('logout')" @quiz="$emit('quiz')" />
       <h1 class="app-title">Privacy risk</h1>
       <p class="app-subtitle">How your posts add up over time.</p>
     </div>

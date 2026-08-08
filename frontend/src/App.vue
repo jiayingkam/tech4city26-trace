@@ -10,6 +10,7 @@ import QuarantineView from './views/QuarantineView.vue'
 import HistoryView from './views/HistoryView.vue'
 import SettingsView from './views/SettingsView.vue'
 import MosaicView from './views/MosaicView.vue'
+import QuizView from './views/QuizView.vue'
 import { uploadPost, processDraft, getDetections, getTeachableMoment, getMosaicRisk, getToken, getMe, logout as apiLogout } from './api'
 import { quickTeachTips } from './content/loadQuickTeach'
 
@@ -218,9 +219,10 @@ onUnmounted(stopQuickTeach)
         @settings="openSettings"
         @mosaic="screen = 'mosaic'"
         @logout="handleLogout"
+        @quiz="screen = 'quiz'"
       />
 
-      <!-- Hamburger menu: History / Settings -->
+      <!-- Hamburger menu: History / Settings / Privacy risk / Quiz -->
       <HistoryView
         v-if="screen === 'history'"
         @back="leaveToApp"
@@ -228,6 +230,7 @@ onUnmounted(stopQuickTeach)
         @settings="openSettings"
         @mosaic="screen = 'mosaic'"
         @logout="handleLogout"
+        @quiz="screen = 'quiz'"
       />
       <SettingsView
         v-else-if="screen === 'settings' && settingsUser"
@@ -238,9 +241,19 @@ onUnmounted(stopQuickTeach)
         @settings="openSettings"
         @mosaic="screen = 'mosaic'"
         @logout="handleLogout"
+        @quiz="screen = 'quiz'"
       />
       <MosaicView
         v-else-if="screen === 'mosaic'"
+        @back="leaveToApp"
+        @history="screen = 'history'"
+        @settings="openSettings"
+        @mosaic="screen = 'mosaic'"
+        @logout="handleLogout"
+        @quiz="screen = 'quiz'"
+      />
+      <QuizView
+        v-else-if="screen === 'quiz'"
         @back="leaveToApp"
         @history="screen = 'history'"
         @settings="openSettings"

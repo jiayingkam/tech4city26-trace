@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 
-defineEmits(['history', 'settings', 'logout', 'mosaic'])
+defineEmits(['history', 'settings', 'logout', 'mosaic', 'quiz'])
 
 const open = ref(false)
 
@@ -33,6 +33,7 @@ function close() {
       <button class="dropdown-item-btn" @click="close(); $emit('settings')">Settings</button>
       <button class="dropdown-item-btn" @click="close(); $emit('history')">History</button>
       <button class="dropdown-item-btn" @click="close(); $emit('mosaic')">Privacy risk</button>
+      <button class="dropdown-item-btn" @click="close(); $emit('quiz')">Quiz</button>
       <button class="dropdown-item-btn text-danger" @click="close(); $emit('logout')">Log out</button>
     </div>
   </div>
