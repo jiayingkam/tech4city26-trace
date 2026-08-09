@@ -11,6 +11,7 @@ import HistoryView from './views/HistoryView.vue'
 import SettingsView from './views/SettingsView.vue'
 import MosaicView from './views/MosaicView.vue'
 import QuizView from './views/QuizView.vue'
+import BreachExposureView from './views/BreachExposureView.vue'
 import { uploadPost, processDraft, getDetections, getTeachableMoment, getMosaicRisk, getToken, getMe, logout as apiLogout } from './api'
 import { quickTeachTips } from './content/loadQuickTeach'
 
@@ -220,9 +221,10 @@ onUnmounted(stopQuickTeach)
         @mosaic="screen = 'mosaic'"
         @logout="handleLogout"
         @quiz="screen = 'quiz'"
+        @breach-exposure="screen = 'breach-exposure'"
       />
 
-      <!-- Hamburger menu: History / Settings / Privacy risk / Quiz -->
+      <!-- Hamburger menu: History / Settings / Privacy risk / Quiz / Credential exposure -->
       <HistoryView
         v-if="screen === 'history'"
         @back="leaveToApp"
@@ -231,6 +233,7 @@ onUnmounted(stopQuickTeach)
         @mosaic="screen = 'mosaic'"
         @logout="handleLogout"
         @quiz="screen = 'quiz'"
+        @breach-exposure="screen = 'breach-exposure'"
       />
       <SettingsView
         v-else-if="screen === 'settings' && settingsUser"
@@ -242,6 +245,7 @@ onUnmounted(stopQuickTeach)
         @mosaic="screen = 'mosaic'"
         @logout="handleLogout"
         @quiz="screen = 'quiz'"
+        @breach-exposure="screen = 'breach-exposure'"
       />
       <MosaicView
         v-else-if="screen === 'mosaic'"
@@ -251,6 +255,7 @@ onUnmounted(stopQuickTeach)
         @mosaic="screen = 'mosaic'"
         @logout="handleLogout"
         @quiz="screen = 'quiz'"
+        @breach-exposure="screen = 'breach-exposure'"
       />
       <QuizView
         v-else-if="screen === 'quiz'"
@@ -259,6 +264,17 @@ onUnmounted(stopQuickTeach)
         @settings="openSettings"
         @mosaic="screen = 'mosaic'"
         @logout="handleLogout"
+        @breach-exposure="screen = 'breach-exposure'"
+      />
+      <BreachExposureView
+        v-else-if="screen === 'breach-exposure'"
+        @back="leaveToApp"
+        @history="screen = 'history'"
+        @settings="openSettings"
+        @mosaic="screen = 'mosaic'"
+        @logout="handleLogout"
+        @quiz="screen = 'quiz'"
+        @breach-exposure="screen = 'breach-exposure'"
       />
 
       <!-- Step 0: Login -->

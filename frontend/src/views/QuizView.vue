@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import HamburgerMenu from '../components/HamburgerMenu.vue'
 import { traceQuiz } from '../content/traceQuiz'
 
-defineEmits(['back', 'history', 'settings', 'mosaic', 'logout', 'quiz'])
+defineEmits(['back', 'history', 'settings', 'mosaic', 'logout', 'quiz', 'breach-exposure'])
 
 // 'topics' (pick a round) -> 'question' (answering) -> 'summary' (round score)
 const stage = ref('topics')
@@ -66,7 +66,7 @@ function optionClass(i) {
 <template>
   <div class="app-screen">
     <div class="app-header">
-      <HamburgerMenu @history="$emit('history')" @settings="$emit('settings')" @mosaic="$emit('mosaic')" @logout="$emit('logout')" @quiz="$emit('quiz')" />
+      <HamburgerMenu @history="$emit('history')" @settings="$emit('settings')" @mosaic="$emit('mosaic')" @logout="$emit('logout')" @quiz="$emit('quiz')" @breach-exposure="$emit('breach-exposure')" />
       <h1 class="app-title">Privacy IQ quiz</h1>
       <p class="app-subtitle">
         {{ stage === 'topics' ? 'Short rounds on how leaks actually happen.' : topic.topic }}

@@ -6,7 +6,7 @@ import { generateWeeklyDigest, updateRetentionMode } from '../api'
 const props = defineProps({
   user: { type: Object, required: true },
 })
-const emit = defineEmits(['back', 'updated', 'history', 'settings', 'mosaic', 'logout', 'quiz'])
+const emit = defineEmits(['back', 'updated', 'history', 'settings', 'mosaic', 'logout', 'quiz', 'breach-exposure'])
 
 const retentionMode = ref(props.user.retention_mode)
 const saving = ref(false)
@@ -49,7 +49,7 @@ async function sendDigest() {
 <template>
   <div class="app-screen">
     <div class="app-header">
-      <HamburgerMenu @history="$emit('history')" @settings="$emit('settings')" @mosaic="$emit('mosaic')" @logout="$emit('logout')" @quiz="$emit('quiz')" />
+      <HamburgerMenu @history="$emit('history')" @settings="$emit('settings')" @mosaic="$emit('mosaic')" @logout="$emit('logout')" @quiz="$emit('quiz')" @breach-exposure="$emit('breach-exposure')" />
       <h1 class="app-title">Settings</h1>
       <p class="app-subtitle">Choose how long Trace remembers scans.</p>
     </div>

@@ -14,7 +14,7 @@ import {
   resumeRemediation,
 } from '../api'
 
-defineEmits(['back', 'history', 'settings', 'mosaic', 'logout', 'quiz'])
+defineEmits(['back', 'history', 'settings', 'mosaic', 'logout', 'quiz', 'breach-exposure'])
 
 // Tapping a quarantined post takes over the whole screen with the same
 // "held for review" / "clean up" flow used right after scanning — reused
@@ -372,6 +372,7 @@ function cooldownRemaining(post) {
     @mosaic="$emit('mosaic')"
     @logout="$emit('logout')"
     @quiz="$emit('quiz')"
+    @breach-exposure="$emit('breach-exposure')"
   />
 
   <QuarantineView
@@ -402,7 +403,7 @@ function cooldownRemaining(post) {
 
   <div v-else class="app-screen">
     <div class="app-header">
-      <HamburgerMenu @history="$emit('history')" @settings="$emit('settings')" @mosaic="$emit('mosaic')" @logout="$emit('logout')" @quiz="$emit('quiz')" />
+      <HamburgerMenu @history="$emit('history')" @settings="$emit('settings')" @mosaic="$emit('mosaic')" @logout="$emit('logout')" @quiz="$emit('quiz')" @breach-exposure="$emit('breach-exposure')" />
       <button
         v-if="posts.length"
         class="header-select-btn"

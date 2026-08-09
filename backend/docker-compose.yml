@@ -143,6 +143,25 @@ services:
       exposure_profiles:
         condition: service_healthy
 
+  check_breach_exposure:
+    build:
+      context: .
+      dockerfile: composite/check_breach_exposure/Dockerfile
+    ports:
+      - "5018:5018"
+    env_file: ../.env
+    depends_on:
+      users:
+        condition: service_healthy
+      exposure_profiles:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5018/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
   detect_mosaic_risk:
     build:
       context: .

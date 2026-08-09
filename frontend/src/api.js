@@ -11,6 +11,7 @@ const COMPILE_FAMILY_DIGEST_URL = import.meta.env.VITE_COMPILE_FAMILY_DIGEST_URL
 const UPDATE_EXPOSURE_PROFILE_URL = import.meta.env.VITE_UPDATE_EXPOSURE_PROFILE_URL || 'http://localhost:5013'
 const USERS_URL = import.meta.env.VITE_USERS_URL || 'http://localhost:5001'
 const MANAGE_HISTORY_URL = import.meta.env.VITE_MANAGE_HISTORY_URL || 'http://localhost:5015'
+const CHECK_BREACH_EXPOSURE_URL = import.meta.env.VITE_CHECK_BREACH_EXPOSURE_URL || 'http://localhost:5018'
 
 // sessionStorage (not localStorage) so the token disappears when the tab
 // closes, rather than lingering on the device indefinitely — the closest
@@ -460,6 +461,31 @@ export async function rebuildExposureProfile(ownerId, onRetry) {
   )
   const data = await parseOrThrow(res)
   return data.profile || null
+}
+
+// Reads the caller's stored breach-exposure result without triggering a
+// fresh LeakCheck/Holehe run — for page load.
+export async function getBreachExposureStatus(onRetry) {
+  const res = await fetchWithRetry(
+    `${CHECK_BREACH_EXPOSURE_URL}/breach-exposure/status`,
+    undefined,
+    { onRetry },
+  )
+  return parseOrThrow(res)
+}
+
+// Triggers the actual check (LeakCheck + a Holehe deep scan across 120+
+// platforms). No retries — a second attempt would race a still-running
+// server-side check rather than cancel it, same reasoning as
+// rebuildExposureProfile. Holehe's own cap is 30s server-side, so the
+// attempt timeout is raised well past the 12s default.
+export async function checkBreachExposure(onRetry) {
+  const res = await fetchWithRetry(
+    `${CHECK_BREACH_EXPOSURE_URL}/breach-exposure/check`,
+    { method: 'POST' },
+    { onRetry, retries: 0, attemptTimeoutMs: 45000 },
+  )
+  return parseOrThrow(res)
 }
 
 export async function getDraftThumbnail(draftId) {
