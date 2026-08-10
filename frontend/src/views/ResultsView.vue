@@ -350,7 +350,8 @@ async function sendChat(text) {
       <template v-else>
         <button v-if="hasFindings" class="btn btn-primary w-100" @click="$emit('continue')">Fix the risky parts</button>
         <button v-else-if="hasFaceFindings" class="btn btn-primary w-100" @click="$emit('continue')">Continue</button>
-        <button class="btn btn-outline-secondary w-100" @click="$emit('restart')">Back</button>
+        <button v-else class="btn btn-primary w-100" @click="$emit('restart')">Done</button>
+        <button v-if="hasFindings || hasFaceFindings" class="btn btn-outline-secondary w-100" @click="$emit('restart')">Back</button>
       </template>
     </div>
 
