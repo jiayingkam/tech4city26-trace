@@ -54,9 +54,13 @@ const TYPE_TIPS = {
 const K_MAX = 6_000_000
 const CIRCUMFERENCE = 2 * Math.PI * 48 // radius 48 inside 120×120 viewBox
 
-function calcScore(k) {
+function calcScoreRaw(k) {
   if (!k || k <= 0) return 0
-  return Math.round(Math.log2(Math.max(k, 1)) / Math.log2(K_MAX) * 100)
+  return Math.log2(Math.max(k, 1)) / Math.log2(K_MAX) * 100
+}
+
+function calcScore(k) {
+  return Math.round(calcScoreRaw(k))
 }
 
 // Score band → colour, shared by the gauge and the per-post breakdown.
@@ -66,14 +70,12 @@ function bandColor(s) {
   return '#d94841'
 }
 
-// Per-post score — no behaviour-factor scaling, so this always matches the
-// headline gauge exactly (both are plain calcScore on the same k values).
-function postScore(point) {
-  return Math.round(calcScore(point.k_after))
-}
-// Points this single post cost (negative) or added (positive).
+// Points this single post cost (negative) or added (positive). Rounds the
+// delta once, rather than subtracting two independently-rounded scores —
+// otherwise a real but small change can vanish when both sides happen to
+// round to the same whole number.
 function postScoreDelta(point) {
-  return postScore(point) - Math.round(calcScore(point.k_before))
+  return Math.round(calcScoreRaw(point.k_after) - calcScoreRaw(point.k_before))
 }
 
 const score = computed(() => calcScore(finalK.value))
@@ -295,7 +297,10 @@ onMounted(load)
               @click="togglePost(point.draft_id)"
             >
               <span class="post-num">{{ i + 1 }}</span>
-              <span class="post-toggle-caption">{{ point.text_content || '(image only)' }}</span>
+              <span
+                class="post-toggle-caption"
+                :class="{ 'post-toggle-caption--expanded': expandedDraftId === point.draft_id }"
+              >{{ point.text_content || '(image only)' }}</span>
               <svg
                 class="post-chevron"
                 :class="{ 'is-open': expandedDraftId === point.draft_id }"
@@ -416,13 +421,20 @@ onMounted(load)
   background: transparent;
   padding: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0;
   text-align: left;
 }
 .post-toggle:hover {
   background: #f2f6fc;
 }
+/* Plain max-height clipping rather than -webkit-line-clamp: inside a
+   <button> flex container, -webkit-line-clamp's legacy -webkit-box display
+   is unreliable across browsers — it can clip the text correctly but still
+   let a trailing line bleed past its own box. max-height + overflow:hidden
+   has no such quirk. No "..." ellipsis as a result, which is an acceptable
+   trade — expanding the row (below) shows the rest instead of a preview
+   cutting mid-word with no way to read further. */
 .post-toggle-caption {
   flex: 1;
   min-width: 0;
@@ -431,11 +443,13 @@ onMounted(load)
   line-height: 1.3;
   color: var(--trace-ink);
   font-weight: 600;
-  display: -webkit-box;
-  line-clamp: 2;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  max-height: 2.6em;
   overflow: hidden;
+  word-break: break-word;
+}
+.post-toggle-caption--expanded {
+  max-height: none;
+  overflow: visible;
 }
 .post-delta {
   font-size: 0.62rem;
@@ -461,6 +475,7 @@ onMounted(load)
 }
 .post-chevron {
   margin-right: 12px;
+  margin-top: 12px;
   color: #9aa4b2;
   flex-shrink: 0;
   transition: transform 0.2s ease;
@@ -485,6 +500,7 @@ onMounted(load)
 .post-num {
   flex-shrink: 0;
   padding-left: 13px;
+  padding-top: 10px;
   min-width: 26px;
   text-align: center;
   font-size: 0.78rem;

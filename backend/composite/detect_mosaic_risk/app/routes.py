@@ -128,18 +128,46 @@ def _is_vague(det: dict) -> bool:
     return not _has_concrete_content(detail)
 
 
+def _is_hedged_or_unclear(det: dict) -> bool:
+    """True when the scanner itself is uncertain — OCR couldn't read the
+    region, or the detail text hedges. Distinct from _is_vague's third
+    condition (a confident detection that just has no concrete identifier),
+    which _detection_bits treats differently for category == "document"."""
+    model_version = det.get("model_version") or ""
+    if "unclear" in model_version:
+        return True
+    detail_lower = (det.get("detail") or "").lower()
+    return any(h in detail_lower for h in _HEDGE_WORDS)
+
+
+# A confidently-detected but unidentified uniform badge is real signal
+# ("this person is a student") but far weaker than a named school — 0.5 is
+# calibrated so a mid-to-high severity vague finding still rounds to a
+# visible whole-number point even after the 15% cleanup residual applied in
+# _detection_to_observation, while staying below what a concretely-named
+# school scores at the same severity.
+_VAGUE_DOCUMENT_CREDIT_FRACTION = 0.5
+
+
 def _detection_bits(det: dict) -> float:
     """0 for vague findings; otherwise exposure_score * 0.5, capped at 5.
 
     A face is always 0 here, covered or not. Faces are never a risk finding
     in this app's model and covering one is a manual, cosmetic choice on the
     Clean-up screen — it does not move the score in either direction.
+
+    A document finding (uniform crest/badge) that's vague only because it
+    couldn't be identified — not because the scanner is hedging/unclear —
+    still gets partial credit: see _VAGUE_DOCUMENT_CREDIT_FRACTION.
     """
     if det.get("category") == "face":
         return 0.0
-    if _is_vague(det):
-        return 0.0
-    return min(det.get("exposure_score", 1) * 0.5, 5.0)
+    full_bits = min(det.get("exposure_score", 1) * 0.5, 5.0)
+    if not _is_vague(det):
+        return full_bits
+    if det.get("category") == "document" and not _is_hedged_or_unclear(det):
+        return full_bits * _VAGUE_DOCUMENT_CREDIT_FRACTION
+    return 0.0
 
 
 def _word_jaccard(a: str, b: str) -> float:
