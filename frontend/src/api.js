@@ -135,8 +135,18 @@ export async function saveCleanedCaption(draftId, caption) {
   return parseOrThrow(res)
 }
 
+// A crowded photo can run several people through vision_scanner.py's
+// per-person GPT-4o loop sequentially, easily taking over a minute. The
+// draft is also locked server-side per-request (scan_draft's
+// _draft_scan_lock), so a retry here would just queue behind the scan
+// already running rather than speed anything up — same reasoning as
+// checkBreachExposure's retries: 0 below.
 export async function processDraft(draftId, onRetry) {
-  const res = await fetchWithRetry(`${SCAN_DRAFT_URL}/drafts/${draftId}/process`, { method: 'POST' }, { onRetry })
+  const res = await fetchWithRetry(
+    `${SCAN_DRAFT_URL}/drafts/${draftId}/process`,
+    { method: 'POST' },
+    { onRetry, retries: 0, attemptTimeoutMs: 180000 },
+  )
   return parseOrThrow(res)
 }
 
