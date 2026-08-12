@@ -33,12 +33,18 @@ function openQuarantinedPost(post) {
 
 async function handleQuarantineEdit(remediation) {
   activeRemediation.value = remediation
+  const draftId = activePost.value.draft_id
   try {
-    activeDetections.value = await getDetections(activePost.value.draft_id)
+    activeDetections.value = await getDetections(draftId)
   } catch {
     activeDetections.value = []
   }
   subScreen.value = 'remediate'
+  try {
+    activeTeachableMoment.value = await getTeachableMoment(draftId)
+  } catch {
+    activeTeachableMoment.value = null
+  }
 }
 
 // A "Pending" post was already scanned and proposed, just never confirmed
