@@ -28,6 +28,27 @@ function detectionLabel(d) {
   return d.detail || CATEGORY_LABELS[d.category] || d.category
 }
 
+function resolutionLabel(d) {
+  return RESOLUTION_LABELS[d.resolution] || 'Pending'
+}
+
+function resolutionClass(d) {
+  return d.resolution === 'rejected' ? 'text-danger' : 'text-success'
+}
+
+// A text (caption) detection is always resolved "accepted" on confirm — it
+// never gets an edit record to skip, see remediate_content's
+// confirm_remediation — so the raw resolution can't tell "used the
+// suggested caption" apart from "kept my own". original_caption is only
+// ever set once a cleaned caption was actually saved, which is the honest
+// signal for this one category. Surfaced next to the caption itself (not
+// as a per-finding badge) since it describes the caption as a whole, not
+// any one flagged detail in it.
+const hasUnappliedCaptionSuggestion = computed(() =>
+  !props.post.original_caption
+  && props.detections.some((d) => d.source_type === 'text' && d.resolution === 'accepted')
+)
+
 function formatDateTime(iso) {
   const d = new Date(iso)
   const pad = (n) => String(n).padStart(2, '0')
@@ -103,15 +124,18 @@ async function sendChat(text) {
         <p class="small text-muted text-decoration-line-through mb-1">{{ post.original_caption }}</p>
         <p class="small mb-3">{{ post.caption || '(caption removed)' }}</p>
       </template>
-      <p v-else-if="post.caption" class="small mb-3">{{ post.caption }}</p>
+      <template v-else-if="post.caption">
+        <p class="small mb-1">{{ post.caption }}</p>
+        <p v-if="hasUnappliedCaptionSuggestion" class="status-chip warn mb-3">Kept original caption</p>
+      </template>
 
       <div v-if="detections.length" class="finding-panel mb-3">
         <p class="fw-bold small mb-2">What was found</p>
         <ul class="list-unstyled small mb-0">
           <li v-for="d in detections" :key="d.detection_id" class="finding-row">
             <span>{{ detectionLabel(d) }}</span>
-            <span class="small fw-semibold" :class="d.resolution === 'rejected' ? 'text-danger' : 'text-success'">
-              {{ RESOLUTION_LABELS[d.resolution] || 'Pending' }}
+            <span v-if="d.source_type !== 'text'" class="small fw-semibold" :class="resolutionClass(d)">
+              {{ resolutionLabel(d) }}
             </span>
           </li>
         </ul>
@@ -127,12 +151,20 @@ async function sendChat(text) {
         <p class="small mb-0"><strong>Safer move:</strong> {{ teachableMoment.safer_action }}</p>
 
         <div class="chat-section mt-3">
-          <button
-            type="button"
-            class="chat-expand-btn"
-            aria-label="Expand chat"
-            @click="chatExpanded = true"
-          >⤢</button>
+          <div class="chat-section-head">
+            <span class="chat-section-title">Ask a question</span>
+            <button
+              type="button"
+              class="chat-expand-btn"
+              aria-label="Expand chat"
+              @click="chatExpanded = true"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
+          </div>
           <TeachableChatPanel
             v-model="chatInput"
             :messages="chatMessages"
@@ -195,17 +227,29 @@ async function sendChat(text) {
   border-top: 1px solid var(--trace-line);
   padding-top: 10px;
 }
+.chat-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.chat-section-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #667085;
+}
 .chat-expand-btn {
-  position: absolute;
-  top: -4px;
-  right: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
-  font-size: 1.05rem;
-  line-height: 1;
-  color: #667085;
-  padding: 4px 6px;
+  color: #98a2b3;
+  padding: 2px;
   cursor: pointer;
+}
+.chat-expand-btn:hover {
+  color: #667085;
 }
 .chat-fullscreen {
   position: absolute;
