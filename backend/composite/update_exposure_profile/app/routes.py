@@ -3,6 +3,7 @@ import json
 import os
 import re
 import threading
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -26,6 +27,16 @@ DETECTIONS_SERVICE_URL = os.environ.get(
 )
 CATEGORIES = ("face", "location", "document", "metadata", "contact", "financial")
 MAX_WEEKLY_FINDINGS = 5
+
+# A single detection's exposure_score is already capped at 5 by every scanner's
+# own schema (Field(ge=1, le=5)). Without a matching per-post cap here, a photo
+# with several people in it — vision_scanner.py checks each person's uniform
+# individually — can rack up one detection per person, all summed in full, so
+# one group photo could outweigh several single-issue posts combined. Capping
+# each post's own total at this same ceiling means a post is never "worth"
+# more than one maximum-severity finding, regardless of how many individual
+# detections it produced.
+PER_POST_RISK_CAP = 5
 
 # Serializes "recompute + store" per user_id — this service runs a single
 # gunicorn worker (threads only), so an in-process lock is sufficient. Without
@@ -138,7 +149,11 @@ def _fetch_user_detections(user_id, headers):
 
 def _build_weekly_digest_profile(detections, window_start, window_end):
     breakdown = {category: 0 for category in CATEGORIES}
-    risk_points = 0
+    # Per-post totals, capped at PER_POST_RISK_CAP before summing across posts
+    # (see that constant's comment) — category_breakdown/total_flags/findings
+    # below are unaffected, still built from every individual detection; only
+    # this feeds the summary score.
+    per_post_points = defaultdict(int)
     findings = []
 
     for detection in detections:
@@ -149,8 +164,10 @@ def _build_weekly_digest_profile(detections, window_start, window_end):
         if category not in breakdown:
             continue
         breakdown[category] += 1
-        risk_points += int(detection.get("exposure_score", 0) or 0)
+        per_post_points[detection.get("draft_id")] += int(detection.get("exposure_score", 0) or 0)
         findings.append(_weekly_finding_from_detection(detection))
+
+    risk_points = sum(min(total, PER_POST_RISK_CAP) for total in per_post_points.values())
 
     findings.sort(key=lambda item: item.get("exposure_score", 0), reverse=True)
 
